@@ -1,0 +1,20 @@
+Executables/**
+.ipynb_checkpoints/
+__pycache__/
+*.c
+*.o
+*.json
+.DS_Store
+*.html
+*.pkl
+*.parquet
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.blend
+*.blend1
+
+# Keeping example colliders
+# !examples/run_xmask_jobs/colliders/*.json
+
