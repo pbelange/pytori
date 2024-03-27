@@ -21,6 +21,7 @@ class Torus():
             self._Ix = _ix + _iy
         return self._Ix
     
+    
     @property
     def Iy(self):
         if self._Iy is None:
@@ -29,6 +30,28 @@ class Torus():
             self._Iy = _ix + _iy
         return self._Iy
     
+    @property
+    def Jx(self):
+        _ix = sum([(np.abs(A)**2)/2 for n,A in zip(self.nx,self.Ax)])
+        return _ix
+    
+    @property
+    def Jy(self):
+        _ix = sum([(np.abs(A)**2)/2 for n,A in zip(self.ny,self.Ay)])
+        return _ix
+    
+
+    def draw_path(self,plane,Qx,Qy,N,r_aspect = None,r_forced = None):
+        # ORDER PLANES
+        #------------------------
+        Thetax = 2*np.pi*Qx*N
+        Thetay = 2*np.pi*Qy*N
+
+        main = [self.projection(plane,Thetax[[i]],Thetay[[i]],r_aspect=r_aspect,r_forced=r_forced)[0][0,0] for i in range(len(N))]
+        sec  = [self.projection(plane,Thetax[[i]],Thetay[[i]],r_aspect=r_aspect,r_forced=r_forced)[1][0,0] for i in range(len(N))]
+        #------------------------
+
+        return np.array(main),np.array(sec)
 
     def slice(self,plane,Thetax,Thetay):
         # ORDER PLANES
@@ -53,7 +76,7 @@ class Torus():
         return np.array(sbys_x).transpose(0, 2, 1),np.array(sbys_y).transpose(0, 2, 1)
 
 
-    def projection(self,plane,Thetax,Thetay,r_aspect = None,r_forced = None,scale_transverse = 1):
+    def projection(self,plane,Thetax,Thetay,r_aspect = None,r_forced = None,scale_transverse=1):
         # ORDER PLANES
         #------------------------
         theta_vec   = Thetax if plane == 'x' else Thetay
@@ -95,16 +118,18 @@ class Torus():
         return np.array(main_projection).transpose(0, 2, 1),np.array(sec_projection).transpose(0, 2, 1),CoT
     
 
-    def to_mesh(self,plane,num_angles,num_slices,r_aspect = None,r_forced = None):
+    def to_mesh(self,plane,num_angles,num_slices,r_aspect = None,r_forced = None,scale_transverse = 1):
+
+        
 
         theta_vec   = np.linspace(0,2*np.pi,num_angles)
         theta_slice = np.linspace(0,2*np.pi,num_slices)
         if plane == 'x':
             main,sec,CoT = self.projection('x',theta_vec,theta_slice,r_aspect,r_forced)
-            main_in,_,_  = self.projection('x',theta_vec,theta_slice,r_aspect,r_forced,scale_transverse = 0.95)
+            main_in,sec_in,_  = self.projection('x',theta_vec,theta_slice,r_aspect,r_forced,scale_transverse = scale_transverse)
         elif plane == 'y':
             main,sec,CoT = self.projection('y',theta_slice,theta_vec,r_aspect,r_forced)
-            main_in,_,_  = self.projection('y',theta_slice,theta_vec,r_aspect,r_forced,scale_transverse = 0.95)
+            main_in,sec_in,_  = self.projection('y',theta_slice,theta_vec,r_aspect,r_forced,scale_transverse = scale_transverse)
 
         
         # OUTER SURFACE
@@ -140,7 +165,31 @@ class Torus():
 
         _mesh = Mesh(verts_in,faces_in,verts_out,faces_out)
         _mesh.meta['r'] = CoT
-        return _mesh
+
+
+        _xyz    = sec
+        v_idx_out   = np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
+        
+        verts_out   = _xyz.reshape(-1, _xyz.shape[-1]).tolist()
+        faces_out   =[[ v_idx_out[s  ,i  ],
+                    v_idx_out[s  ,i+1],
+                    v_idx_out[s+1,i+1],
+                    v_idx_out[s+1,i  ]]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
+        
+        # INNER SURFACE
+        _xyz    = sec_in
+        v_idx_in= np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
+        
+        verts_in= _xyz.reshape(-1, _xyz.shape[-1]).tolist()
+        faces_in=[[ v_idx_in[s  ,i  ],
+                    v_idx_in[s+1,i  ],
+                    v_idx_in[s+1,i+1],
+                    v_idx_in[s  ,i+1],
+                    ]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
+        
+        _mesh_sec = Mesh(verts_in,faces_in,verts_in,faces_in)
+        _mesh_sec.meta['r'] = CoT
+        return {'main':_mesh,'sec':_mesh_sec}
 
 
 
