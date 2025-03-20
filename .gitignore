@@ -14,7 +14,14 @@ __pycache__/
 *.egg-info/
 *.blend
 *.blend1
+*.xcf
+*.png
+*.pdf
+*.svg
+*.mp4
 
+
+paper/  # Ignore the "paper" folder
 # Keeping example colliders
 # !examples/run_xmask_jobs/colliders/*.json
 

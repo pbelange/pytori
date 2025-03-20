@@ -2,14 +2,17 @@ import numpy as np
 
 
 class Torus():
-    def __init__(self,Ax,Ay,nx,ny):
+    def __init__(self,Ax=None,Ay=None,Az=None,nx=None,ny=None,nz=None):
         self.Ax = Ax
         self.Ay = Ay
+        self.Az = Az
         self.nx = nx
         self.ny = ny
+        self.nz = nz
 
         self._Ix = None
         self._Iy = None
+        self._Iz = None
 
 
     
