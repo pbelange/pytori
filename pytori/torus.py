@@ -1,242 +1,356 @@
 import numpy as np
+from shapely.geometry import Polygon
+from shapely.plotting import patch_from_polygon
 
 
 class Torus():
-    def __init__(self,Ax=None,Ay=None,Az=None,nx=None,ny=None,nz=None):
-        self.Ax = Ax
-        self.Ay = Ay
-        self.Az = Az
-        self.nx = nx
-        self.ny = ny
-        self.nz = nz
-
-        self._Ix = None
-        self._Iy = None
-        self._Iz = None
-
+    def __init__(self,A=None,n=None,Ax=[],Ay=[],Az=[],nx=[],ny=[],nz=[],betx0=1,bety0=1,betz0=1):
+        
+        if A is not None:
+            assert len(Ax)==0 and len(Ay)==0 and len(Az)==0, 'Ax,Ay,Az must be empty if A is defined'
+            if len(A)==1:
+                Ax, = A
+            elif len(A)==2:
+                Ax,Ay = A
+            elif len(A)==3:
+                Ax,Ay,Az = A
+        if n is not None:
+            assert len(nx)==0 and len(ny)==0 and len(nz)==0, 'nx,ny,nz must be empty if n is defined'
+            if len(n)==1:
+                nx, = n
+            elif len(n)==2:
+                nx,ny = n
+            elif len(n)==3:
+                nx,ny,nz = n
 
     
-    @property
-    def Ix(self):
-        if self._Ix is None:
-            _ix = sum([n[0]*(np.abs(A)**2)/2 for n,A in zip(self.nx,self.Ax)])
-            _iy = sum([n[0]*(np.abs(A)**2)/2 for n,A in zip(self.ny,self.Ay)])
-            self._Ix = _ix + _iy
-        return self._Ix
-    
-    
-    @property
-    def Iy(self):
-        if self._Iy is None:
-            _ix = sum([n[1]*(np.abs(A)**2)/2 for n,A in zip(self.nx,self.Ax)])
-            _iy = sum([n[1]*(np.abs(A)**2)/2 for n,A in zip(self.ny,self.Ay)])
-            self._Iy = _ix + _iy
-        return self._Iy
-    
-    @property
-    def Jx(self):
-        _ix = sum([(np.abs(A)**2)/2 for n,A in zip(self.nx,self.Ax)])
-        return _ix
-    
-    @property
-    def Jy(self):
-        _ix = sum([(np.abs(A)**2)/2 for n,A in zip(self.ny,self.Ay)])
-        return _ix
-    
+        # Asigning values and forcing types
+        #-------------
+        self.Ax = [complex(A) for A in Ax]
+        self.Ay = [complex(A) for A in Ay]
+        self.Az = [complex(A) for A in Az]
+        self.nx = [tuple(int(_n) for _n in n) for n in nx]
+        self.ny = [tuple(int(_n) for _n in n) for n in ny]
+        self.nz = [tuple(int(_n) for _n in n) for n in nz]
 
-    def draw_path(self,plane,Qx,Qy,N,r_aspect = None,r_forced = None):
-        # ORDER PLANES
-        #------------------------
-        Thetax = 2*np.pi*Qx*N
-        Thetay = 2*np.pi*Qy*N
+        self.Nhx = len(self.Ax)
+        self.Nhy = len(self.Ay)
+        self.Nhz = len(self.Az)
+        self.Nh  = np.max([self.Nhx,self.Nhy,self.Nhz])
 
-        main = [self.projection(plane,Thetax[[i]],Thetay[[i]],r_aspect=r_aspect,r_forced=r_forced)[0][0,0] for i in range(len(N))]
-        sec  = [self.projection(plane,Thetax[[i]],Thetay[[i]],r_aspect=r_aspect,r_forced=r_forced)[1][0,0] for i in range(len(N))]
-        #------------------------
+        self.betx0 = betx0
+        self.bety0 = bety0
+        self.betz0 = betz0
+        #-------------
+        
 
-        return np.array(main),np.array(sec)
+        # Some checks as best as we can...
+        #---------------------------------------------------------------------------------
+        assert len(Ax) == len(nx), 'Ax and nx must have the same length'
+        assert len(Ay) == len(ny), 'Ay and ny must have the same length'
+        assert len(Az) == len(nz), 'Az and nz must have the same length'
 
-    def slice(self,plane,Thetax,Thetay):
-        # ORDER PLANES
-        #------------------------
-        theta_vec   = Thetax if plane == 'x' else Thetay
-        theta_slice = Thetay if plane == 'x' else Thetax
-        vec_plane   = 0 if plane == 'x' else 1
-        slice_plane = 1 if plane == 'x' else 0
-        if isinstance(theta_slice, float):
-            theta_slice = [theta_slice]
-        #------------------------
+        assert len(nx) != 0, "nx must always be defined"
+        self.dim = len(self.nx[0])-1
+        if self.dim == 1:
+            assert len(ny) == 0, "ny must be empty in 2D"
+            assert len(nz) == 0, "nz must be empty in 2D"
 
-        sbys_x = []
-        sbys_y = []
-        for t0 in theta_slice:
-            hx = sum([A * np.exp(1j * (n[vec_plane]*theta_vec + n[slice_plane]*t0))  for A,n in zip(self.Ax,self.nx)])
-            hy = sum([A * np.exp(1j * (n[vec_plane]*theta_vec + n[slice_plane]*t0))  for A,n in zip(self.Ay,self.ny)])
-         
-            sbys_x.append([np.real(hx),-np.imag(hx)])
-            sbys_y.append([np.real(hy),-np.imag(hy)])
-
-        return np.array(sbys_x).transpose(0, 2, 1),np.array(sbys_y).transpose(0, 2, 1)
+        elif self.dim == 2:
+            assert len(ny) != 0, "ny needs to be defined in 4D"
+            assert len(nz) == 0, "nz must be empty in 4D"
+            assert len(nx[0]) == len(ny[0]), 'nx and ny must have the same n. of dimensions'
+        elif self.dim == 3:
+            assert len(ny) != 0, "ny needs to be defined in 6D"
+            assert len(nz) != 0, "nz needs to be defined in 6D"
+            assert len(nx[0]) == len(ny[0]), 'nx and ny must have the same n. of dimensions'
+            assert len(nx[0]) == len(nz[0]), 'nx and nz must have the same n. of dimensions'
+        #---------------------------------------------------------------------------------
 
 
-    def projection(self,plane,Thetax,Thetay,r_aspect = None,r_forced = None,scale_transverse=1):
-        # ORDER PLANES
-        #------------------------
-        theta_vec   = Thetax if plane == 'x' else Thetay
-        theta_slice = Thetay if plane == 'x' else Thetax
-        vec_plane   = 0 if plane == 'x' else 1
-        slice_plane = 1 if plane == 'x' else 0
 
-        if r_forced is not None:
-            CoT = r_forced
-        elif r_aspect is not None:
-            other_I = self.Ix if plane == 'x' else self.Iy
-            CoT = r_aspect*other_I
+    # PSI Evaluation
+    #=====================================================================================
+    def _Psij(self,A,n,Tx=0,Ty=0,Tz=0,Nh=None):
+        if Nh is None:
+            Nh = len(A)
         else:
-            CoT = self.Iy if plane == 'x' else self.Ix
-            
-        if isinstance(theta_slice, float):
-            theta_slice = [theta_slice]
-        #------------------------
-            
-        sbys_x,sbys_y = self.slice(plane,Thetax,Thetay)
-        sbys_main = sbys_x if plane == 'x' else sbys_y
-        sbys_sec  = sbys_y if plane == 'x' else sbys_x
+            Nh = int(Nh)
 
-        main_projection = []
-        sec_projection  = []
-
-        for s,t0 in enumerate(theta_slice):    
-            center = np.array([[CoT*np.cos(t0)],[CoT*np.sin(t0)],[0]])
-
-            proj_main = center + scale_transverse*np.array([sbys_main[s][:,0]*np.cos(t0),
-                                                            sbys_main[s][:,0]*np.sin(t0),
-                                                            sbys_main[s][:,1]])
-            proj_sec  = center + scale_transverse*np.array([sbys_sec[s][:,0]*np.cos(t0),
-                                                            sbys_sec[s][:,0]*np.sin(t0),
-                                                            sbys_sec[s][:,1]])
-            main_projection.append(proj_main)
-            sec_projection.append(proj_sec)
-
-        return np.array(main_projection).transpose(0, 2, 1),np.array(sec_projection).transpose(0, 2, 1),CoT
+        if self.dim == 1:
+            arg = [nk[0]*Tx for nk in n]
+        elif self.dim == 2:
+            arg = [nk[0]*Tx + nk[1]*Ty for nk in n]
+        elif self.dim == 3:
+            arg = [nk[0]*Tx + nk[1]*Ty + nk[2]*Tz for nk in n]
+        else:
+            raise ValueError('Invalid number of dimensions')
+        
+        _Psij = sum([Ak * np.exp(1j * argk)  for Ak,argk in zip(A[:Nh],arg[:Nh])])
+        return _Psij
     
 
-    def to_mesh(self,plane,num_angles,num_slices,r_aspect = None,r_forced = None,scale_transverse = 1):
-
-        
-
-        theta_vec   = np.linspace(0,2*np.pi,num_angles)
-        theta_slice = np.linspace(0,2*np.pi,num_slices)
-        if plane == 'x':
-            main,sec,CoT = self.projection('x',theta_vec,theta_slice,r_aspect,r_forced)
-            main_in,sec_in,_  = self.projection('x',theta_vec,theta_slice,r_aspect,r_forced,scale_transverse = scale_transverse)
-        elif plane == 'y':
-            main,sec,CoT = self.projection('y',theta_slice,theta_vec,r_aspect,r_forced)
-            main_in,sec_in,_  = self.projection('y',theta_slice,theta_vec,r_aspect,r_forced,scale_transverse = scale_transverse)
-
-        
-        # OUTER SURFACE
-        _xyz    = main
-        v_idx_out   = np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
-        
-        verts_out   = _xyz.reshape(-1, _xyz.shape[-1]).tolist()
-        faces_out   =[[ v_idx_out[s  ,i  ],
-                    v_idx_out[s  ,i+1],
-                    v_idx_out[s+1,i+1],
-                    v_idx_out[s+1,i  ]]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
-        
-        # INNER SURFACE
-        _xyz    = main_in
-        v_idx_in= np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
-        
-        verts_in= _xyz.reshape(-1, _xyz.shape[-1]).tolist()
-        faces_in=[[ v_idx_in[s  ,i  ],
-                    v_idx_in[s+1,i  ],
-                    v_idx_in[s+1,i+1],
-                    v_idx_in[s  ,i+1],
-                    ]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
-
-        #===================
-        #   s,i+1       s+1,i+1  
-        #    +---------+  
-        #    |         |  
-        #    |    F    |  
-        #    |         |  
-        #    +---------+  
-        #   s,i        s+1,i  
-        #===================
-
-        _mesh = Mesh(verts_in,faces_in,verts_out,faces_out)
-        _mesh.meta['r'] = CoT
-
-
-        _xyz    = sec
-        v_idx_out   = np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
-        
-        verts_out   = _xyz.reshape(-1, _xyz.shape[-1]).tolist()
-        faces_out   =[[ v_idx_out[s  ,i  ],
-                    v_idx_out[s  ,i+1],
-                    v_idx_out[s+1,i+1],
-                    v_idx_out[s+1,i  ]]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
-        
-        # INNER SURFACE
-        _xyz    = sec_in
-        v_idx_in= np.arange(_xyz.shape[0]*_xyz.shape[1]).reshape((_xyz.shape[0],_xyz.shape[1]))
-        
-        verts_in= _xyz.reshape(-1, _xyz.shape[-1]).tolist()
-        faces_in=[[ v_idx_in[s  ,i  ],
-                    v_idx_in[s+1,i  ],
-                    v_idx_in[s+1,i+1],
-                    v_idx_in[s  ,i+1],
-                    ]  for s in range(-1,num_slices-1) for i in range(-1,num_angles-1)]
-        
-        _mesh_sec = Mesh(verts_in,faces_in,verts_in,faces_in)
-        _mesh_sec.meta['r'] = CoT
-        return {'main':_mesh,'sec':_mesh_sec}
-
-
-
-
-class Mesh():
-    def __init__(self,verts_in,faces_in,verts_out,faces_out):
-        self.verts_in = verts_in
-        self.faces_in = faces_in
-        self.edges_in = []
-        self.verts_out = verts_out
-        self.faces_out = faces_out
-        self.edges_out = []
-        self.meta = {}
-
-    # def to_dict(self):
-    #     metadata = {'verts':self.verts,'faces':self.faces, 'edges':self.edges,'meta':self.meta}
-    #     return metadata
-    def to_dict(self):
-        # Directly return a copy of the object's __dict__ attribute
-        return self.__dict__.copy()
+    def Psix(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
+        _Psij = self._Psij(self.Ax,self.nx,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
+        if unpack:
+            return np.real(_Psij),-np.imag(_Psij)
+        else:
+            return _Psij
     
-    def to_pickle(self,filename):
-        import pickle
-
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
+    def Psiy(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
+        _Psij = self._Psij(self.Ay,self.ny,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
+        if unpack:
+            return np.real(_Psij),-np.imag(_Psij)
+        else:
+            return _Psij
     
-    def to_json(self,filename):
-        metadata = self.to_dict()
-        with open(filename , "w") as f: 
-            json.dump(metadata, f,cls=NpEncoder)
+    def Psiz(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
+        _Psij = self._Psij(self.Az,self.nz,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
+        if unpack:
+            return np.real(_Psij),-np.imag(_Psij)
+        else:
+            return _Psij
+    #=====================================================================================
 
 
 
+    # Coordinates evaluation
+    #=====================================================================================
+    def X(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return np.real(self.Psix(Tx,Ty,Tz,Nh))
+    
+    def Px(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return -np.imag(self.Psix(Tx,Ty,Tz,Nh))
+    
+    def Y(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return np.real(self.Psiy(Tx,Ty,Tz,Nh))
+    
+    def Py(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return -np.imag(self.Psiy(Tx,Ty,Tz,Nh))
+
+    def Z(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return np.real(self.Psiz(Tx,Ty,Tz,Nh))
+    
+    def Pz(self,Tx=0,Ty=0,Tz=0,Nh=None):
+        return -np.imag(self.Psiz(Tx,Ty,Tz,Nh))    
+    #=====================================================================================
+
+
+    # Partial action evaluation
+    #=====================================================================================
+    def _phi(self,A,n,int_angle,Tx=0,Ty=0,Tz=0):
+        if int_angle == 'x':
+            if self.dim == 2:
+                phi = [np.angle(Ak) + nk[1]*Ty  for Ak,nk in zip(A,n)]
+            elif self.dim == 3:
+                phi = [np.angle(Ak) + nk[1]*Ty + nk[2]*Tz  for Ak,nk in zip(A,n)]
+        elif int_angle == 'y':
+            if self.dim == 2:
+                phi = [np.angle(Ak) + nk[0]*Tx  for Ak,nk in zip(A,n)]
+            elif self.dim == 3:
+                phi = [np.angle(Ak) + nk[0]*Tx + nk[2]*Tz  for Ak,nk in zip(A,n)]
+        elif int_angle == 'z':
+            if self.dim == 3:
+                phi = [np.angle(Ak) + nk[0]*Tx + nk[1]*Ty  for Ak,nk in zip(A,n)]
+        else:
+            raise ValueError('Invalid integration angle')
+        return phi
+
+    def _Ijl(self,A,n,int_angle,Tx=0,Ty=0,Tz=0,Nh=None):
+        # See paper, Eq. (D6)
+        if Nh is None:
+            Nh = len(A)
+        else:
+            Nh = int(Nh)
+
+        phi     = self._phi(A,n,int_angle,Tx,Ty,Tz)
+        jidx    = {'x':0,'y':1,'z':2}[int_angle]
+        _Ijl    = 1/2 * sum(np.abs(Ak)*np.abs(Aj)*nk[jidx]*np.cos(phik-phij)    for nk,Ak,phik in zip(n[:Nh],A[:Nh],phi[:Nh]) 
+                                                                                for nj,Aj,phij in zip(n[:Nh],A[:Nh],phi[:Nh]) 
+                                                                                if nj[jidx]==nk[jidx])
         
-#============================================================
-import json
-class NpEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NpEncoder, self).default(obj)
-#============================================================
+        return _Ijl
+    
+    # Integration on Theta-X
+    def Ixx(self,Ty=0,Tz=0,Nh=None):
+        return self._Ijl(self.Ax,self.nx,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    def Ixy(self,Ty=0,Tz=0,Nh=None):
+        return self._Ijl(self.Ay,self.ny,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    def Ixz(self,Ty=0,Tz=0,Nh=None):
+        return self._Ijl(self.Az,self.nz,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    
+    # Integration on Theta-Y
+    def Iyx(self,Tx=0,Tz=0,Nh=None):
+        return self._Ijl(self.Ax,self.nx,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    def Iyy(self,Tx=0,Tz=0,Nh=None):
+        return self._Ijl(self.Ay,self.ny,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    def Iyz(self,Tx=0,Tz=0,Nh=None):
+        return self._Ijl(self.Az,self.nz,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    
+    # Integration on Theta-Z
+    def Izx(self,Tx=0,Ty=0,Nh=None):
+        return self._Ijl(self.Ax,self.nx,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    def Izy(self,Tx=0,Ty=0,Nh=None):
+        return self._Ijl(self.Ay,self.ny,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    def Izz(self,Tx=0,Ty=0,Nh=None):
+        return self._Ijl(self.Az,self.nz,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    #=====================================================================================
+
+    
+    # Delta function evaluation
+    #=====================================================================================
+    def _Djl(self,A,n,int_angle,Tx=0,Ty=0,Tz=0,Nh=None):
+        # See paper, Eq. (D8)
+        if Nh is None:
+            Nh = len(A)
+        else:
+            Nh = int(Nh)
+
+        phi     = self._phi(A,n,int_angle,Tx,Ty,Tz)
+        jidx    = {'x':0,'y':1,'z':2}[int_angle]
+        _Djl    = 1/2 * sum(np.abs(Ak)*np.abs(Aj)*nk[jidx]*np.cos(phik-phij)    for k,nk,Ak,phik in zip(range(Nh),n[:Nh],A[:Nh],phi[:Nh]) 
+                                                                                for j,nj,Aj,phij in zip(range(Nh),n[:Nh],A[:Nh],phi[:Nh]) 
+                                                                                if (nj[jidx]==nk[jidx]) and (j!=k))
+        
+        return _Djl
+
+    # Integration on Theta-X
+    def Dxx(self,Ty=0,Tz=0,Nh=None):
+        return self._Djl(self.Ax,self.nx,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    def Dxy(self,Ty=0,Tz=0,Nh=None):
+        return self._Djl(self.Ay,self.ny,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    def Dxz(self,Ty=0,Tz=0,Nh=None):
+        return self._Djl(self.Az,self.nz,int_angle='x',Ty=Ty,Tz=Tz,Nh=Nh)
+    
+    # Integration on Theta-Y
+    def Dyx(self,Tx=0,Tz=0,Nh=None):
+        return self._Djl(self.Ax,self.nx,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    def Dyy(self,Tx=0,Tz=0,Nh=None):
+        return self._Djl(self.Ay,self.ny,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    def Dyz(self,Tx=0,Tz=0,Nh=None):
+        return self._Djl(self.Az,self.nz,int_angle='y',Tx=Tx,Tz=Tz,Nh=Nh)
+    
+    # Integration on Theta-Z
+    def Dzx(self,Tx=0,Ty=0,Nh=None):
+        return self._Djl(self.Ax,self.nx,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    def Dzy(self,Tx=0,Ty=0,Nh=None):
+        return self._Djl(self.Ay,self.ny,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    def Dzz(self,Tx=0,Ty=0,Nh=None):
+        return self._Djl(self.Az,self.nz,int_angle='z',Tx=Tx,Ty=Ty,Nh=Nh)
+    #=====================================================================================
+
+    
+    # Invariant evaluation
+    #=====================================================================================
+    def Ix(self,Ty=0,Tz=0,Nh=None):
+        return self.Ixx(Ty,Tz,Nh) + self.Ixy(Ty,Tz,Nh) + self.Ixz(Ty,Tz,Nh)
+    def Iy(self,Tx=0,Tz=0,Nh=None):
+        return self.Iyx(Tx,Tz,Nh) + self.Iyy(Tx,Tz,Nh) + self.Iyz(Tx,Tz,Nh)
+    def Iz(self,Tx=0,Ty=0,Nh=None):
+        return self.Izx(Tx,Ty,Nh) + self.Izy(Tx,Ty,Nh) + self.Izz(Tx,Ty,Nh)
+    #-------------------------------------
+    def epsx(self,Ty=0,Tz=0,Nh=None):
+        return self.Dxx(Ty,Tz,Nh) + self.Dxy(Ty,Tz,Nh) + self.Dxz(Ty,Tz,Nh)
+    def epsy(self,Tx=0,Tz=0,Nh=None):
+        return self.Dyx(Tx,Tz,Nh) + self.Dyy(Tx,Tz,Nh) + self.Dyz(Tx,Tz,Nh)
+    def epsz(self,Tx=0,Ty=0,Nh=None):
+        return self.Dzx(Tx,Ty,Nh) + self.Dzy(Tx,Ty,Nh) + self.Dzz(Tx,Ty,Nh)
+    #=====================================================================================
+
+
+    # AVG Invariant evaluation
+    #=====================================================================================
+    def _EIj(self,int_angle,Nh = None,Nhx=None,Nhy=None,Nhz=None):
+        if Nhx is None:
+            Nhx = len(self.Ax)
+        if Nhy is None:
+            Nhy = len(self.Ay)
+        if Nhz is None:
+            Nhz = len(self.Az)
+        if Nh is None:
+            pass
+        else:
+            Nhx = int(np.min([Nh,Nhx]))
+            Nhy = int(np.min([Nh,Nhy]))
+            Nhz = int(np.min([Nh,Nhz]))
+        
+        jidx  = {'x':0,'y':1,'z':2}[int_angle]
+        _EIjx = 1/2 * sum([nk[jidx]*(np.abs(Ak)**2) for nk,Ak in zip(self.nx[:Nhx],self.Ax[:Nhx])])
+        _EIjy = 1/2 * sum([nk[jidx]*(np.abs(Ak)**2) for nk,Ak in zip(self.ny[:Nhy],self.Ay[:Nhy])])
+        _EIjz = 1/2 * sum([nk[jidx]*(np.abs(Ak)**2) for nk,Ak in zip(self.nz[:Nhz],self.Az[:Nhz])])
+        
+        return _EIjx+_EIjy+_EIjz
+    
+    @property
+    def EIx(self):
+        return self._EIj('x')
+    @property
+    def EIy(self):
+        return self._EIj('y')
+    @property
+    def EIz(self):
+        return self._EIj('z')
+    
+    def EIx_truncate(self,Nh = None,Nhx=None,Nhy=None,Nhz=None):
+        return self._EIj('x',Nh,Nhx,Nhy,Nhz)
+    def EIy_truncate(self,Nh = None,Nhx=None,Nhy=None,Nhz=None):
+        return self._EIj('y',Nh,Nhx,Nhy,Nhz)
+    def EIz_truncate(self,Nh = None,Nhx=None,Nhy=None,Nhz=None):
+        return self._EIj('z',Nh,Nhx,Nhy,Nhz)
+    #=====================================================================================
+
+
+    # Courant-snyder invariant, x^2 + px^2
+    #=====================================================================================
+    def _Jj(self, A ,Nh = None):
+        if Nh is None:
+            Nh = len(A)
+        else:
+            Nh = int(Nh)
+
+        return 1/2 * sum([(np.abs(Ak)**2) for Ak in A[:Nh]])
+    
+    @property
+    def Jx(self,Nh = None):
+        return self._Jj(self.Ax,Nh)
+    @property
+    def Jy(self,Nh = None):
+        return self._Jj(self.Ay,Nh)
+    @property
+    def Jz(self,Nh = None):
+        return self._Jj(self.Az,Nh)
+    #=====================================================================================
+
+
+
+    # Plotting toolbox
+    #=====================================================================================
+    def loop(self,Tx=0,Ty=0,Tz=0,Nh=None,partial = False):
+        if partial:
+            addon = [(0,0)]
+        else:
+            addon = []
+
+        if self.dim>=1:
+            X,Px = self.Psix(Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh,unpack = True)
+            loopx = Polygon(addon + [(_x,_px) for _x,_px in zip(X,Px)])
+            projections = loopx
+        if self.dim>=2:
+            Y,Py = self.Psiy(Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh,unpack = True)
+            loopy = Polygon(addon + [(_y,_py) for _y,_py in zip(Y,Py)])
+            projections += (loopy,)
+        if self.dim>=3:
+            Z,Pz = self.Psiz(Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh,unpack = True)
+            loopz = Polygon(addon + [(_z,_pz) for _z,_pz in zip(Z,Pz)])
+            projections += (loopz,)
+
+        return projections
+        
+    
+    def loop_patch(self,Tx=0,Ty=0,Tz=0,Nh=None,partial = False,unpack=False,**kwargs):
+        _loop = self.loop(Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh,partial=partial)
+        if unpack:
+            return _loop,patch_from_polygon(_loop,**kwargs)
+        else:
+            return patch_from_polygon(_loop,**kwargs)
+    #=====================================================================================
