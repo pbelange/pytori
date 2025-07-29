@@ -2,8 +2,22 @@ import numpy as np
 from collections import defaultdict
 import pandas as pd
 
+
+
+class MathlibSympy(object):
+    from sympy import sqrt, exp, sin, cos, pi, tan, conjugate
+    from sympy import Abs as abs
+    from sympy import Basic
+
+
+class MathlibNumpy(object):
+    from numpy import sqrt, exp, sin, cos, abs, pi, tan, conjugate
+    from numpy import complex128 as Basic
+
+_mp = MathlibNumpy  # Default math library, can be changed to MathlibSympy for symbolic computations
+
 class FourierSeriesND:
-    def __init__(self, coeff_dict, max_modes=None, max_k=500, content_fraction=None, numerical_tol=1e-21,bet0=1):
+    def __init__(self, coeff_dict, max_modes=None, max_k=500, content_fraction=None, numerical_tol=1e-21,bet0=1,mp=_mp,complex_basis = True):
         """
         Initialize a FourierSeriesND object using sparse representation.
 
@@ -21,6 +35,17 @@ class FourierSeriesND:
         self.content_fraction = content_fraction
         self.numerical_tol = numerical_tol
         self.bet0 = bet0
+        self.complex_basis = complex_basis
+        if isinstance(mp, str):
+            if mp == 'numpy':
+                self.mp = MathlibNumpy
+            elif mp == 'sympy':
+                self.mp = MathlibSympy
+            else:
+                raise ValueError("mp must be 'numpy' or 'sympy'")
+        else:
+            self.mp = mp
+        
 
         if max_modes is not None or max_k is not None:
             coeff_dict = self._truncate_dict(coeff_dict, max_modes, max_k,content_fraction)
@@ -31,7 +56,7 @@ class FourierSeriesND:
     def copy(self):
         """Return a new copy of the Fourier series."""
         coeff_dict = {k: v for k, v in self._coeff_dict.items()}
-        return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol)
+        return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
 
     def _truncate_dict(self, coeff_dict, max_modes=None, max_k=None, content_fraction=None):
         """
@@ -83,22 +108,42 @@ class FourierSeriesND:
         data = [(k, v) for k, v in coeff_dict.items()]
         df = pd.DataFrame(data, columns=["mode", "coefficient"])
         # return df.sort_values(by=df["coefficient"].apply(abs), ascending=False)
-        return df.sort_values(by="coefficient", key=lambda col: abs(col), ascending=False).reset_index(drop=True)
+        try:
+            return df.sort_values(by="coefficient", key=lambda col: abs(col), ascending=False).reset_index(drop=True)
+        except:
+            return df
 
 
     def truncate(self, max_modes=None, max_k=None,content_fraction=None):
         """
         Returns a new FourierSeriesND with truncated coefficients.
         """
-        return FourierSeriesND(self._coeff_dict, max_modes=max_modes, max_k=max_k,content_fraction=content_fraction, numerical_tol=self.numerical_tol)
+        return FourierSeriesND(self._coeff_dict, max_modes=max_modes, max_k=max_k,content_fraction=content_fraction, numerical_tol=self.numerical_tol,mp=self.mp)
 
     def star(self):
         """Return the complex conjugate series with reversed mode indices."""
         coeff_dict = self.to_dict()
-        conjugated = {tuple(-np.array(k)): np.conj(v) for k, v in coeff_dict.items()}
-        return FourierSeriesND(conjugated, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol)
+        if self.complex_basis:
+            conjugated = {tuple(-np.array(k)): self.mp.conjugate(v) for k, v in coeff_dict.items()}
+        else:
+            # Here we should flip the indices k[1],k[0],k[3],k[2], and so on
+            conjugated = {}
+            for k, v in coeff_dict.items():
+                k_array = np.array(k)
+                swapped_indices = []
+                # Swap each consecutive pair
+                for i in range(0, len(k_array), 2):
+                    swapped_indices.extend([k_array[i+1], k_array[i]])
+                swapped_k = tuple(swapped_indices)
+                conjugated[swapped_k] = self.mp.conjugate(v)
+
+        return FourierSeriesND(conjugated, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
 
     def conj(self):
+        """Alias for .star(), returns complex conjugate."""
+        return self.star()
+    
+    def conjugate(self):
         """Alias for .star(), returns complex conjugate."""
         return self.star()
 
@@ -112,14 +157,14 @@ class FourierSeriesND:
             result_dict = {k: dict1.get(k, 0) + dict2.get(k, 0) for k in all_keys}
             max_modes = self.max_modes or other.max_modes
             max_k = min(self.max_k, other.max_k) if self.max_k and other.max_k else self.max_k or other.max_k
-            numerical_tol = min(self.numerical_tol, other.numerical_tol)
-            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol)
+            numerical_tol = min(self.numerical_tol, other.numerical_tol) if self.numerical_tol is not None else None
+            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp)
         elif isinstance(other, (int, float, complex)):
             dict1 = self.to_dict()
             result_dict = dict(dict1)
             zero_mode = (0,) * self.dim
             result_dict[zero_mode] = result_dict.get(zero_mode, 0) + complex(other)
-            return FourierSeriesND(result_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol)
+            return FourierSeriesND(result_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
         else:
             return NotImplemented
 
@@ -140,11 +185,11 @@ class FourierSeriesND:
             result_dict = self._sparse_convolve(dict1, dict2)
             max_modes = self.max_modes or other.max_modes
             max_k = min(self.max_k, other.max_k) if self.max_k and other.max_k else self.max_k or other.max_k
-            numerical_tol = min(self.numerical_tol, other.numerical_tol)
-            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol)
-        elif isinstance(other, (int, float, complex)):
+            numerical_tol = min(self.numerical_tol, other.numerical_tol) if self.numerical_tol is not None else None
+            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp)
+        elif isinstance(other, (int, float, complex,self.mp.Basic)):
             coeff_dict = {k: v * other for k, v in self.to_dict().items()}
-            return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol)
+            return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
         else:
             return NotImplemented
         
@@ -165,7 +210,7 @@ class FourierSeriesND:
     def __pow__(self, power):
         """Raise the series to an integer power by repeated multiplication."""
         assert isinstance(power, int) and power >= 0
-        identity = FourierSeriesND({(0,) * self.dim: 1.0}, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol)
+        identity = FourierSeriesND({(0,) * self.dim: 1.0}, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
         result = identity
         for _ in range(power):
             result = result * self
@@ -176,13 +221,15 @@ class FourierSeriesND:
         return self + (-1 * other)
 
     
-    
     def __repr__(self):
         """Compact string representation of active coefficients sorted by descending amplitude."""
         terms = self.to_dict()
         cleaned_terms = [(tuple(int(i) for i in k), v) for k, v in terms.items()]
-        sorted_terms = sorted(cleaned_terms, key=lambda kv: -abs(kv[1]))
-        return "FourierSeriesND(" + ", ".join(f"A{n}={v:.3g}" for n, v in sorted_terms) + ")"
+        try:
+            sorted_terms = sorted(cleaned_terms, key=lambda kv: -abs(kv[1]))
+        except:
+            sorted_terms = cleaned_terms
+        return "FourierSeriesND(" + ", ".join(f"A{n}={v}" for n, v in sorted_terms) + ")"
     
 
 
