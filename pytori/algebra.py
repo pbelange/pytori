@@ -8,7 +8,13 @@ class MathlibSympy(object):
     from sympy import sqrt, exp, sin, cos, pi, tan, conjugate
     from sympy import Abs as abs
     from sympy import Basic
+    from sympy import latex as _latex
+    from IPython.display import display as _display, Latex as _Latex
 
+    @staticmethod
+    def print_eq(lhs, rhs):
+        result = "${} \mapsto {}$".format(MathlibSympy._latex(lhs), MathlibSympy._latex(rhs))
+        MathlibSympy._display(MathlibSympy._Latex(result))
 
 class MathlibNumpy(object):
     from numpy import sqrt, exp, sin, cos, abs, pi, tan, conjugate
@@ -52,6 +58,7 @@ class FourierSeriesND:
 
         self._coeff_dict = {k: v for k, v in coeff_dict.items() if v != 0}
 
+    
 
     def copy(self):
         """Return a new copy of the Fourier series."""
@@ -206,6 +213,12 @@ class FourierSeriesND:
     def __radd__(self, other):
         """Support scalar + FourierSeriesND addition."""
         return self.__add__(other)
+    
+    def __rsub__(self, other):
+        """Support scalar - FourierSeriesND."""
+        # other is expected to be a scalar (int/float/complex/numpy scalar/sympy number)
+        # Compute: other + (-self)
+        return (-self).__add__(other)
 
     def __pow__(self, power):
         """Raise the series to an integer power by repeated multiplication."""
@@ -219,18 +232,32 @@ class FourierSeriesND:
     def __sub__(self, other):
         """Subtract two FourierSeriesND instances."""
         return self + (-1 * other)
+    
+    def __neg__(self):
+        """Unary negation: return -self."""
+        coeff_dict = {k: -v for k, v in self.to_dict().items()}
+        return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
 
+    def __getitem__(self, key):
+        """Access a specific Fourier coefficient."""
+        return self._coeff_dict.get(key, 0)
     
     def __repr__(self):
         """Compact string representation of active coefficients sorted by descending amplitude."""
         terms = self.to_dict()
-        cleaned_terms = [(tuple(int(i) for i in k), v) for k, v in terms.items()]
-        try:
-            sorted_terms = sorted(cleaned_terms, key=lambda kv: -abs(kv[1]))
-        except:
-            sorted_terms = cleaned_terms
-        return "FourierSeriesND(" + ", ".join(f"A{n}={v}" for n, v in sorted_terms) + ")"
-    
+        if self.mp is MathlibSympy:
+            print('FourierSeriesND')
+            for k, v in terms.items():
+                self.mp.print_eq(k, v)
+            return ''
+        else:
+            cleaned_terms = [(tuple(int(i) for i in k), v) for k, v in terms.items()]
+            try:
+                sorted_terms = sorted(cleaned_terms, key=lambda kv: -abs(kv[1]))
+            except:
+                sorted_terms = cleaned_terms
+            return "FourierSeriesND(" + ", ".join(f"A{n}={v}" for n, v in sorted_terms) + ")"
+        
 
 
 

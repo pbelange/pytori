@@ -191,23 +191,33 @@ class Torus(metaclass=_TorusMeta):
     def Psix(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
         _Psij = self._Psij(self.Ax,self.nx,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
         if unpack:
-            return np.real(_Psij),-np.imag(_Psij)
+            return np.real(_Psij)*np.sqrt(self.betx0),-np.imag(_Psij)/np.sqrt(self.betx0)
         else:
-            return _Psij
+            if self.betx0 == 1:
+                return _Psij
+            else: 
+                return np.real(_Psij)*np.sqrt(self.betx0) - 1j * np.imag(_Psij)/np.sqrt(self.betx0)
+
     
     def Psiy(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
         _Psij = self._Psij(self.Ay,self.ny,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
         if unpack:
-            return np.real(_Psij),-np.imag(_Psij)
+            return np.real(_Psij)*np.sqrt(self.bety0),-np.imag(_Psij)/np.sqrt(self.bety0)
         else:
-            return _Psij
-    
+            if self.betx0 == 1:
+                return _Psij
+            else:
+                return np.real(_Psij)*np.sqrt(self.bety0) - 1j * np.imag(_Psij)/np.sqrt(self.bety0)
+            
     def Psiz(self,Tx=0,Ty=0,Tz=0,Nh=None,unpack = False):
         _Psij = self._Psij(self.Az,self.nz,Tx=Tx,Ty=Ty,Tz=Tz,Nh=Nh)
         if unpack:
-            return np.real(_Psij),-np.imag(_Psij)
+            return np.real(_Psij)*np.sqrt(self.betz0),-np.imag(_Psij)/np.sqrt(self.betz0)
         else:
-            return _Psij
+            if self.betx0 == 1:
+                return _Psij
+            else:
+                return np.real(_Psij)*np.sqrt(self.betz0) - 1j * np.imag(_Psij)/np.sqrt(self.betz0)
     #=====================================================================================
 
 
@@ -298,7 +308,7 @@ class Torus(metaclass=_TorusMeta):
     # Delta function evaluation
     #=====================================================================================
     def _Djl(self,A,n,int_angle,Tx=0,Ty=0,Tz=0,Nh=None):
-        # See paper, Eq. (D8)
+        # CHANGED. Dij now refers to the area-delta, not the action. See Thesis.
         if Nh is None:
             Nh = len(A)
         else:
@@ -306,7 +316,7 @@ class Torus(metaclass=_TorusMeta):
 
         phi     = self._phi(A,n,int_angle,Tx,Ty,Tz)
         jidx    = {'x':0,'y':1,'z':2}[int_angle]
-        _Djl    = 1/2 * sum(np.abs(Ak)*np.abs(Aj)*nk[jidx]*np.cos(phik-phij)    for k,nk,Ak,phik in zip(range(Nh),n[:Nh],A[:Nh],phi[:Nh]) 
+        _Djl    = np.pi * sum(np.abs(Ak)*np.abs(Aj)*nk[jidx]*np.cos(phik-phij)    for k,nk,Ak,phik in zip(range(Nh),n[:Nh],A[:Nh],phi[:Nh]) 
                                                                                 for j,nj,Aj,phij in zip(range(Nh),n[:Nh],A[:Nh],phi[:Nh]) 
                                                                                 if (nj[jidx]==nk[jidx]) and (j!=k))
         

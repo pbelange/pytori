@@ -20,25 +20,96 @@ def Pj(Psi,bet0,mp=_mp):
     """
     factor = 1/(2*1j*mp.sqrt(bet0))
     return factor*(Psi.conjugate()-Psi)
+
+
+def _truncated_gegenbauer_series(Pz_pwrs, alpha, beta_rel, mp=_mp):
+    """
+    Construct the truncated chromatic factor Cz (or its inverse) up to degree N.
+
+    Definition
+    ----------
+    Cz(u) = sum_{k=0}^∞ c_k u^k ,    with u = beta_rel * Pz
+    where the coefficients c_k depend on (alpha, 1/beta_rel).
+    """
+    
+    N      = len(Pz_pwrs) - 1  # Degree of truncation
+    coeffs = gegenbauer_coeffs(N, alpha, 1/beta_rel)  # c_0..c_N
+
+    return sum(c * p for c, p in zip(coeffs, Pz_pwrs))
+
+
+def _d_truncated_gegenbauer_series(Pz_pwrs, alpha, beta_rel, mp=_mp):
+    """
+    Build T_{N-1}[ d/dPz C_alpha(beta_rel*Pz) ] using the same Pz_pwrs.
+    Pz_pwrs = [u^0,...,u^N]; derivative uses [u^0,...,u^{N-1}] and multiplies by beta_rel.
+    """
+    N = len(Pz_pwrs) - 1
+    if N <= 0:
+        return 0
+    coeffs = gegenbauer_coeffs(N, alpha, 1/beta_rel)  # c_0..c_N
+    # d/dPz sum_{k=0}^N c_k u^k = beta_rel * sum_{k=1}^N k c_k u^{k-1}
+    u_pwrs = Pz_pwrs[:-1]  # [u^0,...,u^{N-1}]
+    out = 0
+    for k in range(1, N+1):
+        out += (k * coeffs[k]) * u_pwrs[k-1]
+    return beta_rel * out
+
 #=========================================================================================
 
 
 
 # Utilities
 #=========================================================================================
-def list_powers(Psi,pwr):
+def list_powers(Psi, pwr):
     """
-    Generate a list of powers of Psi to reduce number of operations.
+    Generate [Psi**0, Psi**1, ..., Psi**pwr].
+    Works for numbers, NumPy arrays, or SymPy expressions.
     """
     assert isinstance(pwr, int) and pwr >= 0
-    identity = Psi**0
-    result   = identity
-    lst      = [identity]
+    result = Psi**0
+    lst = [result]
     for _ in range(pwr):
         result = result * Psi
         lst.append(result)
     return lst
 
+def gegenbauer_coeffs(N, alpha, x, dtype=float):
+    """
+    Return the coefficients a_k = (-1)^k * G_k^{(alpha)}(x) for k = 0..N (inclusive).
+    That is, the output has length N+1 and represents the truncated series:
+        sum_{k=0}^N a_k * u^k,   with u = (beta_rel * Pz)
+
+    Returns
+    -------
+    out : np.ndarray shape (N+1,)
+        Coefficients [a_0, a_1, ..., a_N].
+    """
+    assert isinstance(N, int) and N >= 0, "N must be an integer >= 0"
+
+    x = dtype(x)
+    out = np.empty(N + 1, dtype=dtype)
+
+    # k = 0
+    Ckm2 = dtype(1)         # G_0^{(alpha)}(x) = 1
+    out[0] = Ckm2           # (-1)^0 * C0
+
+    if N == 0:
+        return out
+
+    # k = 1
+    Ckm1 = dtype(2) * dtype(alpha) * x  # G_1^{(alpha)}(x) = 2 alpha x
+    out[1] = -Ckm1                      # (-1)^1 * C1
+
+    sign = -1  # tracks (-1)^k; currently at k=1
+    for k in range(2, N + 1):
+        kf = dtype(k)
+        Ck = (dtype(2) * (kf + dtype(alpha) - dtype(1)) / kf) * x * Ckm1 \
+             - ((kf + dtype(2)*dtype(alpha) - dtype(2)) / kf) * Ckm2
+        sign = -sign
+        out[k] = sign * Ck
+        Ckm2, Ckm1 = Ckm1, Ck
+
+    return out
 
 # Taken from https://github.com/xsuite/xtrack/blob/main/ducktrack/elements.py
 def _arrayofsize(ar, size):
@@ -173,15 +244,72 @@ def co_geo_normalization(nemitt_x=None, nemitt_y=None, nemitt_z=None,
 
 
 
-def drift(Psix=None, Psiy=None, Psiz=None, ds=0,exp_order=20,bet0x=None, bet0y=None, bet0z=None,mp=_mp):
+def drift(Psix=None, Psiy=None, Psiz=None, ds=0,particle_on_co=None,beta_rel = None,order=20,bet0x=None, bet0y=None, bet0z=None,mp=_mp):
     """
     Apply the drift transformation: 
-    H = 1/2 * (px^2 + py^2) / (1 + pz^2)
+    H = pz - delta + (px^2 + py^2) / 2(1 + delta)
     
     Parameters:
         ds                  : float — drift length
         Psix, Psiy, Psiz    : FourierSeriesND, np.array or None — projections of the Fourier series
-        exp_order           : int — number of terms in the series expansion
+        order               : int — truncation order for chromatic factor
+
+    Returns:
+        (_Psix, _Psiy, _Psiz): transformed Fourier series (or None if not provided)
+    """
+    _Psix, _Psiy, _Psiz = None, None, None
+
+    # Ensure bet0 values are provided
+    bet0x, bet0y, bet0z = _init_beta0(Psix, Psiy, Psiz, bet0x, bet0y, bet0z)
+
+    if beta_rel is None and particle_on_co is not None:
+        beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
+    assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
+
+    # Extract canonical momenta
+    Px = Pj(Psix, bet0x, mp=mp) if Psix is not None else 0
+    Py = Pj(Psiy, bet0y, mp=mp) if Psiy is not None else 0
+    Pz = Pj(Psiz, bet0z, mp=mp) if Psiz is not None else 0
+
+    # Build chromatic factors truncated on the Hamiltonian (order N in Pz)
+    if Psiz is not None:
+        #---------------
+        Pz_pwrs     = list_powers(beta_rel * Pz, pwr=order)  # [u^0,...,u^N]
+        #---------------
+        Cz          = _truncated_gegenbauer_series(Pz_pwrs, +0.5, beta_rel, mp=mp)
+        dCz_dPz     = _d_truncated_gegenbauer_series(Pz_pwrs, +0.5, beta_rel, mp=mp)
+        dCzinv_dPz  = _d_truncated_gegenbauer_series(Pz_pwrs, -0.5, beta_rel, mp=mp)
+    else:
+        Cz, Czinv, dCz_dPz, dCzinv_dPz = 1, 1, 0, 0
+
+    # Apply the (exact-for-this-H) Lie map with consistent truncations
+    if Psix is not None:
+        _Psix = Psix + ds / mp.sqrt(bet0x) * (Px * Cz)
+
+    if Psiy is not None:
+        _Psiy = Psiy + ds / mp.sqrt(bet0y) * (Py * Cz)
+
+    if Psiz is not None:
+        Px2Py2_over2 = (Px*Px + Py*Py) / 2
+        increment = 1 - dCzinv_dPz + dCz_dPz * Px2Py2_over2
+        _Psiz = Psiz + ds / mp.sqrt(bet0z) * increment
+
+    return _Psix, _Psiy, _Psiz
+
+
+
+
+
+
+def bend(Psix=None, Psiy=None, Psiz=None, k0=None, h=None, particle_on_co=None,beta_rel = None,order=20,bet0x=None, bet0y=None, bet0z=None,mp=_mp):
+    """
+    Apply the thin dipole transformation: 
+    H = -h*x*(1+delta) + k0*(x + h*x^2/2)
+    
+    Parameters:
+        k0                  : normalized field strength
+        Psix, Psiy, Psiz    : FourierSeriesND, np.array or None — projections of the Fourier series
+        order               : int — truncation order for chromatic factor
 
     Returns:
         (_Psix, _Psiy, _Psiz): transformed Fourier series (or None if not provided)
@@ -189,29 +317,41 @@ def drift(Psix=None, Psiy=None, Psiz=None, ds=0,exp_order=20,bet0x=None, bet0y=N
     _Psix, _Psiy, _Psiz = None, None, None
     # Ensure bet0 values are provided
     bet0x, bet0y, bet0z = _init_beta0(Psix, Psiy, Psiz, bet0x, bet0y, bet0z)
+    
+    if beta_rel is None and particle_on_co is not None:
+        beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
+    assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
+
+    if h is None and k0 is not None:
+        h = k0
+    elif h is not None and k0 is None:
+        k0 = h
+    elif h is None and k0 is None:
+        raise ValueError("Either k0 or h must be provided")
 
     # Extract coordinates
-    Px = Pj(Psix,bet0x,mp=mp) if Psix is not None else 0
-    Py = Pj(Psiy,bet0y,mp=mp) if Psiy is not None else 0
-    Pz = Pj(Psiz,bet0z,mp=mp) if Psiz is not None else 0
+    X   = Qj(Psix,bet0x,mp=mp) if Psix is not None else 0
+    Pz  = Pj(Psiz,bet0z,mp=mp) if Psiz is not None else 0
 
+    # Build chromatic factors truncated on the Hamiltonian (order N in Pz)
     if Psiz is not None:
-        div_terms = list_powers(-1*Pz, exp_order)
+        #---------------
+        Pz_pwrs     = list_powers(beta_rel * Pz, pwr=order)  # [u^0,...,u^N]
+        #---------------
+        Czinv       = _truncated_gegenbauer_series(Pz_pwrs, -0.5, beta_rel, mp=mp)
+        dCzinv_dPz  = _d_truncated_gegenbauer_series(Pz_pwrs, -0.5, beta_rel, mp=mp)
     else:
-        div_terms = [1] 
+        Cz, Czinv, dCz_dPz, dCzinv_dPz = 1, 1, 0, 0
 
-    div_sum = sum(div_terms)
 
     if Psix is not None:
-        _Psix = Psix + ds / mp.sqrt(bet0x) * Px * div_sum
+        _Psix = Psix + 1j * mp.sqrt(bet0x) * (k0*(1+h*X) - h*Czinv)
     if Psiy is not None:
-        _Psiy = Psiy + ds / mp.sqrt(bet0y) * Py * div_sum
+        _Psiy = Psiy 
     if Psiz is not None:
-        div_sum2 = sum((k + 1) * term for k, term in enumerate(div_terms))
-        _Psiz = Psiz - ds / mp.sqrt(bet0z) * (Px**2 + Py**2) / 2 * div_sum2
+        _Psiz = Psiz - 1 / mp.sqrt(bet0z) * dCzinv_dPz * h * X
 
     return _Psix, _Psiy, _Psiz
-
 
 
 
