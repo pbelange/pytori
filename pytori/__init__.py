@@ -10,4 +10,5 @@ from .algebra import (
 )
 
 from .transforms import *
+from .linear_normal_form import *
 

@@ -262,9 +262,10 @@ def drift(Psix=None, Psiy=None, Psiz=None, ds=0,particle_on_co=None,beta_rel = N
     # Ensure bet0 values are provided
     bet0x, bet0y, bet0z = _init_beta0(Psix, Psiy, Psiz, bet0x, bet0y, bet0z)
 
-    if beta_rel is None and particle_on_co is not None:
-        beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
-    assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
+    if Psiz is not None:
+        if beta_rel is None and particle_on_co is not None:
+            beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
+        assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
 
     # Extract canonical momenta
     Px = Pj(Psix, bet0x, mp=mp) if Psix is not None else 0
@@ -318,9 +319,10 @@ def bend(Psix=None, Psiy=None, Psiz=None, k0=None, h=None, particle_on_co=None,b
     # Ensure bet0 values are provided
     bet0x, bet0y, bet0z = _init_beta0(Psix, Psiy, Psiz, bet0x, bet0y, bet0z)
     
-    if beta_rel is None and particle_on_co is not None:
-        beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
-    assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
+    if Psiz is not None:
+        if beta_rel is None and particle_on_co is not None:
+            beta_rel = particle_on_co.beta0[0] if hasattr(particle_on_co, 'beta0') else particle_on_co['beta0']
+        assert beta_rel is not None, "beta_rel or particle_on_co with valid beta0 must be provided"
 
     if h is None and k0 is not None:
         h = k0
@@ -410,7 +412,7 @@ def multipole(Psix=None, Psiy=None, Psiz=None, knl=[],ksl=[],bet0x=None, bet0y=N
 
 
 def phys2norm(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=None, W_matrix=None,
-              nemitt_x=None, nemitt_y=None, nemitt_z=None, particle_on_co=None,beta_rel = None,gamma_rel = None):
+              nemitt_x=None, nemitt_y=None, nemitt_z=None, particle_on_co=None,beta_rel = None,gamma_rel = None,mp=_mp):
     """
     Apply normalization transformation to coupled phase space variables (ψ_x, ψ_y, ψ_ζ),
     converting them into decoupled (normalized) variables (ψ̃_x, ψ̃_y, ψ̃_ζ).
@@ -462,7 +464,7 @@ def phys2norm(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
     psi_tilde = [0] * dim
     for i in range(dim):
         for j in range(dim):
-            psi_tilde[i] += np.conj(lambda_plus[j, i]) * psi_vec[j] - lambda_minus[j, i] * psi_vec[j].conjugate()
+            psi_tilde[i] += lambda_plus[j, i].conjugate() * psi_vec[j] - lambda_minus[j, i] * psi_vec[j].conjugate()
 
     result = [None, None, None]
     for i, idx in enumerate(active_dims):
@@ -473,7 +475,7 @@ def phys2norm(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
     #=========================================================
     for i, idx in enumerate(active_dims):
         assert result[idx] is not None, f"Expected result[{idx}] to be set for normalization"
-        result[idx] = result[idx] / np.sqrt(geo[idx])
+        result[idx] = result[idx] / mp.sqrt(geo[idx])
     #=========================================================
 
     return tuple(result)
@@ -481,7 +483,7 @@ def phys2norm(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
 
 
 def norm2phys(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=None, W_matrix=None,
-              nemitt_x=None, nemitt_y=None, nemitt_z=None, particle_on_co=None,beta_rel = None,gamma_rel = None):
+              nemitt_x=None, nemitt_y=None, nemitt_z=None, particle_on_co=None,beta_rel = None,gamma_rel = None,mp=_mp):
     """
     Apply inverse normalization transformation to decoupled phase space variables (ψ̃_x, ψ̃_y, ψ̃_ζ),
     reconstructing the coupled (physical) variables (ψ_x, ψ_y, ψ_ζ).
@@ -526,7 +528,7 @@ def norm2phys(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
     #=========================================================
     co, geo = co_geo_normalization(nemitt_x=nemitt_x, nemitt_y=nemitt_y, nemitt_z=nemitt_z,particle_on_co=particle_on_co, beta_rel=beta_rel, gamma_rel=gamma_rel)        
     for i, idx in enumerate(active_dims):        
-        psi_vec[idx] = psi_vec[idx] * np.sqrt(geo[idx])
+        psi_vec[idx] = psi_vec[idx] * mp.sqrt(geo[idx])
     #=========================================================
 
 
@@ -549,4 +551,65 @@ def norm2phys(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
         result[idx] = result[idx] + co[idx]
     #========================================================
 
+    return tuple(result)
+
+
+
+def linear_map(Psix=None, Psiy=None, Psiz=None,
+               Qvec=None, lambda_plus=None, lambda_minus=None, W_matrix=None,
+               U_matrix=None, V_matrix=None, mp=_mp):
+    """
+    Apply a linear map to (ψ_x, ψ_y, ψ_ζ) in the complex basis Ψ, via
+        Ψ' = U Ψ + V Ψ*
+    where, if U,V are not provided:
+        U =   Lp E Lp^† - Lm E^* Lm^†
+        V = - Lp E Lm^T + Lm E^* Lp^T)
+    with E = diag(exp(i*2π Q_j)).
+    Arithmetic uses explicit loops to support NumPy / SymPy / custom backends.
+    """
+
+    # Active inputs (keep x,y,z ordering)
+    psi_list    = [Psix, Psiy, Psiz]
+    active_dims = [i for i, psi in enumerate(psi_list) if psi is not None]
+    psi_vec     = [psi_list[i] for i in active_dims]
+    dim = len(psi_vec)
+
+    # Decide whether we build U,V or use provided
+    need_UV = (U_matrix is None and V_matrix is None)
+
+    if need_UV:
+        # We need Qvec only if we're building U,V
+        assert Qvec is not None, "Qvec (phase advances) must be provided when U,V are not."
+        assert len(Qvec) >= dim, f"Expected at least {dim} phase advances"
+
+        U,V = pt.linear_normal_form.construct_UV(Qvec=Qvec, lambda_plus=lambda_plus, lambda_minus=lambda_minus, W_matrix=W_matrix, mp=mp)
+
+    else:
+        # Use provided U,V; coerce to list-of-lists for uniform indexing
+        assert (U_matrix is not None) and (V_matrix is not None), \
+            "Both U_matrix and V_matrix must be provided"
+        try:
+            U = U_matrix.tolist()
+            V = V_matrix.tolist()
+        except Exception:
+            U = U_matrix
+            V = V_matrix
+        # Basic shape checks
+        assert len(U) == dim and len(V) == dim, "U,V must match active dimension"
+        assert all(len(row) == dim for row in U) and all(len(row) == dim for row in V), \
+            "U,V must be square (dim x dim)"
+
+    # Apply Ψ' = U Ψ + V Ψ*
+    psi_out = [0 for _ in range(dim)]
+    for i in range(dim):
+        total = 0
+        for k in range(dim):
+            total += U[i][k] * psi_vec[k]
+            total += V[i][k] * psi_vec[k].conjugate()
+        psi_out[i] = total
+
+    # Repack into (Psix, Psiy, Psiz)
+    result = [None, None, None]
+    for loc, idx in enumerate(active_dims):
+        result[idx] = psi_out[loc]
     return tuple(result)

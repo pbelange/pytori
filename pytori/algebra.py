@@ -5,8 +5,15 @@ import pandas as pd
 
 
 class MathlibSympy(object):
-    from sympy import sqrt, exp, sin, cos, pi, tan, conjugate
+    name = "sympy"
+    from sympy import sqrt, exp, sin, cos, pi, tan, conjugate, I, Matrix
     from sympy import Abs as abs
+    from sympy import acos as arccos
+    from sympy import asin as arcsin
+    from sympy import atan as arctan
+    from sympy import atan2 as arctan2
+    from sympy import re as real
+    from sympy import im as imag
     from sympy import Basic
     from sympy import latex as _latex
     from IPython.display import display as _display, Latex as _Latex
@@ -16,9 +23,21 @@ class MathlibSympy(object):
         result = "${} \mapsto {}$".format(MathlibSympy._latex(lhs), MathlibSympy._latex(rhs))
         MathlibSympy._display(MathlibSympy._Latex(result))
 
+    # function to wrap numpy zeros passing all arguments:
+    @staticmethod
+    def zeros(*args, **kw):
+        return MathlibSympy.Matrix(np.zeros(*args, **kw))
+    
+
 class MathlibNumpy(object):
-    from numpy import sqrt, exp, sin, cos, abs, pi, tan, conjugate
+    name    = "numpy"
+    I       = 1j
+    from numpy import sqrt, exp, sin, cos, abs, pi, tan, conjugate,arccos, arcsin, arctan,arctan2,real,imag,zeros
     from numpy import complex128 as Basic
+    
+
+    
+
 
 _mp = MathlibNumpy  # Default math library, can be changed to MathlibSympy for symbolic computations
 
@@ -47,10 +66,13 @@ class FourierSeriesND:
                 self.mp = MathlibNumpy
             elif mp == 'sympy':
                 self.mp = MathlibSympy
+                self.numerical_tol = None
             else:
                 raise ValueError("mp must be 'numpy' or 'sympy'")
         else:
             self.mp = mp
+            if self.mp is MathlibSympy:
+                self.numerical_tol = None
         
 
         if max_modes is not None or max_k is not None:
