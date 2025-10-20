@@ -36,12 +36,14 @@ def _hstack_columns(cols, mp=_mp):
 def _build_M_stacked(U, V,mp=_mp):
     """M = [[U, V], [V*, U*]] in the stacked ordering [Ψ; Ψ*]."""
     
-    n = U.shape[0]
+    
     if mp.name == 'sympy':
         import sympy as sp
+        n = U.shape[0]
         M = sp.Matrix.zeros(2*n, 2*n)
     else:
         U = np.asarray(U); V = np.asarray(V)
+        n = U.shape[0]
         M = np.zeros((2*n, 2*n), dtype=complex)
 
     M[:n, :n] = U
@@ -278,36 +280,71 @@ def T_to_W(Tvec, mp=_mp):
     return pt.transforms.lambda_to_W(lambda_plus=Lp, lambda_minus=Lm)
 
 
-def construct_UV(Qvec=None, lambda_plus=None, lambda_minus=None, W_matrix=None, mp=_mp):
+def construct_UV(Qvec=None, lambda_plus=None, lambda_minus=None, W_matrix=None,
+                 Lp_list=None,Lm_list=None,W_list=None, mp=_mp):
     """
-    Build U and V matrices from λ± and phase advances Qvec.
-        U =   Lp E Lp^† - Lm E^* Lm^†
-        V = - Lp E Lm^T + Lm E^* Lp^T)
-    with E = diag(exp(i*2π Q_j)).
+    Build U and V matrices from Λ± at two locations and phase advances Qvec.
+      General (two-location) form:
+        U =  Λ2,+ E Λ1,+^†  -  Λ2,- E^* Λ1,-^†
+        V = -Λ2,+ E Λ1,-^T  +  Λ2,- E^* Λ1,+^T
+      Periodic/same-optics case reduces to:
+        U =  Λ+ E Λ+^†  -  Λ- E^* Λ-^†
+        V = -Λ+ E Λ-^T  +  Λ- E^* Λ+^T
+      with E = diag(exp(i*2π Q_j)).
     """
 
+    
+    # We need Qvec !
+    assert Qvec is not None, "Qvec (phase advances) must be provided "
     dim = len(Qvec)
 
-    # We need Qvec only if we're building U,V
-    assert Qvec is not None, "Qvec (phase advances) must be provided when U,V are not."
-    # assert len(Qvec) >= dim, f"Expected at least {dim} phase advances"
+    if any(x is not None for x in (lambda_plus, lambda_minus, W_matrix)):
+        assert (Lp_list is None) and (Lm_list is None) and (W_list is None), \
+            "Provide either (lambda_plus, lambda_minus, W_matrix) or (Lp_list, Lm_list, W_list), not both."
+    
+        # Resolve λ± (either provided or from W)
+        if W_matrix is not None:
+            assert lambda_plus is None and lambda_minus is None, \
+                "Provide either W_matrix or (lambda_plus, lambda_minus), not both."
+            lambda_plus, lambda_minus = pt.transforms.W_to_lambda(W_matrix)
 
-    # Resolve λ± (either provided or from W)
-    if W_matrix is not None:
-        assert lambda_plus is None and lambda_minus is None, \
-            "Provide either W_matrix or (lambda_plus, lambda_minus), not both."
-        lambda_plus, lambda_minus = pt.transforms.W_to_lambda(W_matrix)
+        assert (lambda_plus is not None) and (lambda_minus is not None), \
+            "lambda_plus and lambda_minus must be provided (or pass W_matrix)."
 
-    assert (lambda_plus is not None) and (lambda_minus is not None), \
-        "lambda_plus and lambda_minus must be provided (or pass W_matrix)."
-    assert lambda_plus.shape == (dim, dim) and lambda_minus.shape == (dim, dim), \
-        f"λ± must have shape ({dim},{dim})."
+        Lp1, Lm1 = lambda_plus, lambda_minus
+        Lp2, Lm2 = lambda_plus, lambda_minus
 
-    Lp, Lm = lambda_plus, lambda_minus
+    if any(x is not None for x in (Lp_list, Lm_list, W_list)):
+        assert (lambda_plus is None) and (lambda_minus is None) and (W_matrix is None), \
+            "Provide either (lambda_plus, lambda_minus, W_matrix) or (Lp_list, Lm_list, W_list), not both."
 
-    # Use backend's imaginary unit when available
-    I = getattr(mp, 'I', 1j)
-    E = [mp.exp(2 * I * mp.pi * Qvec[j]) for j in range(dim)]
+        if W_list is not None:
+            assert len(W_list) == 2, "W_list must be [W1, W2]."
+            assert (Lp_list is None) and (Lm_list is None), \
+                "Provide either W_list or (Lp_list, Lm_list), not both."
+            
+            Lp_list = []
+            Lm_list = []
+            for W in W_list:
+                Lp, Lm = pt.transforms.W_to_lambda(W)
+                Lp_list.append(Lp)
+                Lm_list.append(Lm)
+
+        assert (Lp_list is not None) and (Lm_list is not None), \
+            "lambda_plus and lambda_minus must be provided (or pass W_matrix)."
+        assert len(Lp_list) == 2 and len(Lm_list) == 2, \
+            "Lp_list and Lm_list must each be length 2: [Λ1, Λ2]."
+
+        Lp1, Lm1 = Lp_list[0], Lm_list[0]
+        Lp2, Lm2 = Lp_list[1], Lm_list[1]
+
+    assert Lp1.shape == (dim, dim) and Lm1.shape == (dim, dim), \
+        f"dimension mismatch, Qvec has length {dim}, but lambda_plus has shape {Lp1.shape}."
+    assert Lp2.shape == (dim, dim) and Lm2.shape == (dim, dim), \
+        f"dimension mismatch, Qvec has length {dim}, but lambda_plus has shape {Lp2.shape}."
+
+    # Computing rotation matrix E
+    E = [mp.exp(2 * mp.I * mp.pi * Qvec[j]) for j in range(dim)]
 
     # Build U and V explicitly
     U = [[0 for _ in range(dim)] for _ in range(dim)]
@@ -319,11 +356,11 @@ def construct_UV(Qvec=None, lambda_plus=None, lambda_minus=None, W_matrix=None, 
             sV = 0
             for j in range(dim):
                 # U = Lp E Lp^† - Lm E^* Lm^†
-                sU += Lp[i, j] * E[j]                  * mp.conjugate(Lp[k, j])
-                sU -= Lm[i, j] * mp.conjugate(E[j])    * mp.conjugate(Lm[k, j])
+                sU += Lp2[i, j] * E[j]                  * mp.conjugate(Lp1[k, j])
+                sU -= Lm2[i, j] * mp.conjugate(E[j])    * mp.conjugate(Lm1[k, j])
                 # V = - Lp E Lm^T + Lm E^* Lp^T)
-                sV -= Lp[i, j] * E[j]                  * Lm[k, j]
-                sV += Lm[i, j] * mp.conjugate(E[j])    * Lp[k, j]
+                sV -= Lp2[i, j] * E[j]                  * Lm1[k, j]
+                sV += Lm2[i, j] * mp.conjugate(E[j])    * Lp1[k, j]
             U[i][k] = sU
             V[i][k] = sV
     return U,V

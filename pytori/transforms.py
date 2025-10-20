@@ -45,7 +45,7 @@ def _d_truncated_gegenbauer_series(Pz_pwrs, alpha, beta_rel, mp=_mp):
     """
     N = len(Pz_pwrs) - 1
     if N <= 0:
-        return 0
+        return 0*Pz_pwrs[0]  # Derivative of constant is zero
     coeffs = gegenbauer_coeffs(N, alpha, 1/beta_rel)  # c_0..c_N
     # d/dPz sum_{k=0}^N c_k u^k = beta_rel * sum_{k=1}^N k c_k u^{k-1}
     u_pwrs = Pz_pwrs[:-1]  # [u^0,...,u^{N-1}]
@@ -557,6 +557,7 @@ def norm2phys(Psix=None, Psiy=None, Psiz=None, lambda_plus=None, lambda_minus=No
 
 def linear_map(Psix=None, Psiy=None, Psiz=None,
                Qvec=None, lambda_plus=None, lambda_minus=None, W_matrix=None,
+               Lp_list=None,Lm_list=None,W_list=None,
                U_matrix=None, V_matrix=None, mp=_mp):
     """
     Apply a linear map to (ψ_x, ψ_y, ψ_ζ) in the complex basis Ψ, via
@@ -582,7 +583,8 @@ def linear_map(Psix=None, Psiy=None, Psiz=None,
         assert Qvec is not None, "Qvec (phase advances) must be provided when U,V are not."
         assert len(Qvec) >= dim, f"Expected at least {dim} phase advances"
 
-        U,V = pt.linear_normal_form.construct_UV(Qvec=Qvec, lambda_plus=lambda_plus, lambda_minus=lambda_minus, W_matrix=W_matrix, mp=mp)
+        U,V = pt.linear_normal_form.construct_UV(Qvec=Qvec, lambda_plus=lambda_plus, lambda_minus=lambda_minus, W_matrix=W_matrix,
+                                                 Lp_list=Lp_list,Lm_list=Lm_list,W_list=W_list, mp=mp)
 
     else:
         # Use provided U,V; coerce to list-of-lists for uniform indexing

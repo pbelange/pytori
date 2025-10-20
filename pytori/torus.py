@@ -37,11 +37,15 @@ class _TorusMeta(type):
         return super().__new__(cls, name, bases, namespace)
     
 
+def _ndim_of(dct):
+    return len(next(iter(dct))) if dct else 0
+
+
 class Torus(metaclass=_TorusMeta):
 
     def __init__(self, x=None, y=None, z=None,betx0=1, bety0=1, betz0=1,
-                 max_modes=None, max_k=500, content_fraction=None,
-                 numerical_tol=1e-21, mp='numpy', complex_basis=True):
+                 max_order=None, max_k=500, content_fraction=None,
+                 numerical_tol=1e-21, mp='numpy', complex_basis=True,dim=None):
         
 
 
@@ -50,11 +54,14 @@ class Torus(metaclass=_TorusMeta):
         y = y or {}
         z = z or {}
 
+        if dim is None:
+            dim = max(_ndim_of(x), _ndim_of(y), _ndim_of(z))
+        
 
         # Strong Fourier series
-        self._x = pt.FourierSeriesND(x,max_modes=max_modes, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=betx0, mp=mp, complex_basis=complex_basis)
-        self._y = pt.FourierSeriesND(y,max_modes=max_modes, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=bety0, mp=mp, complex_basis=complex_basis)
-        self._z = pt.FourierSeriesND(z,max_modes=max_modes, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=betz0, mp=mp, complex_basis=complex_basis)
+        self._x = pt.FourierSeriesND(x,dim=dim,max_order=max_order, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=betx0, mp=mp, complex_basis=complex_basis)
+        self._y = pt.FourierSeriesND(y,dim=dim,max_order=max_order, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=bety0, mp=mp, complex_basis=complex_basis)
+        self._z = pt.FourierSeriesND(z,dim=dim,max_order=max_order, max_k=max_k, content_fraction=content_fraction, numerical_tol=numerical_tol, bet0=betz0, mp=mp, complex_basis=complex_basis)
         
         # Updating coefficients and checks
         self.needs_refresh = True
@@ -82,7 +89,7 @@ class Torus(metaclass=_TorusMeta):
         if dim >= 3:
             z = _accumulate_modes(n[2], A[2], dim)
 
-        return cls(x=x, y=y, z=z, **kwargs)
+        return cls(x=x, y=y, z=z,dim=dim, **kwargs)
     
     # We update coefficients if fourier series are modified
     #=======================================================
@@ -164,8 +171,62 @@ class Torus(metaclass=_TorusMeta):
         #     assert len(self.nx[0]) == len(self.ny[0]), 'nx and ny must have the same n. of dimensions'
         #     assert len(self.nx[0]) == len(self.nz[0]), 'nx and nz must have the same n. of dimensions'
         #---------------------------------------------------------------------------------
+    
+    def copy(self):
+        """Return a deep copy of this Torus."""
+        _T = Torus(
+            betx0=self.betx0,
+            bety0=self.bety0,
+            betz0=self.betz0,
+            dim =self.dim,
+            max_order=self.x.max_order,
+            max_k=self.x.max_k,
+            content_fraction=self.x.content_fraction,
+            numerical_tol=self.x.numerical_tol,
+            mp=self.x.mp,
+            complex_basis=self.x.complex_basis,
+        )
+        # Replace Fourier series with deep copies
+        _T.x = self.x.copy()
+        _T.y = self.y.copy()
+        _T.z = self.z.copy()
+
+        # Recompute cached coefficients and checks for consistency
+        _T.update_coeffs()
+        _T.make_checks()
+        return _T
+        
+    # Lambda evaluation
+    def lambda_twiss(self,):
+        """Evaluate the Lambda^+ and Lambda^- matrices (linear part!!) from the torus coefficients."""
+        # Mathlib
+        mp = self.x.mp
+
+        # Basis vectors
+        dim     = self.dim
+        planes  = ['x','y','z'][:dim]
+        basis   = [tuple(int(x) for x in np.eye(dim, dtype=int)[i]) for i in range(dim)]
+
+        # Extracting eigen-vector-like quantities
+        vecs = []
+        for bp in basis: 
+            # Negative basis
+            bm = tuple(-x for x in bp)
+            #-----
+            Tkp = [getattr(self,plane)[bp] for plane in planes]                 # λ_k^+
+            Tkm = [np.conjugate(getattr(self,plane)[bm]) for plane in planes]   # (λ_k^-)*
+            #-----
+            # [λ_k^+, (λ_k^-)*)]
+            vecs.append(Tkp+Tkm)  
 
 
+        # Normalizing and regauging
+        vecs,norms  = pt.linear_normal_form._normalize_eigenvecs(vecs,mp=mp)
+        vecs        = pt.linear_normal_form._regauge_eigenvecs(vecs,mp=mp)
+
+        # Building Lambda^+, Lambda^-
+        Lp,Lm = pt.linear_normal_form.T_to_lambda(vecs, mp=mp)
+        return Lp,Lm
 
     # PSI Evaluation
     #=====================================================================================
@@ -419,15 +480,36 @@ class Torus(metaclass=_TorusMeta):
         return 1/2 * sum([(np.abs(Ak)**2) for Ak in A[:Nh]])
     
     @property
-    def Jx(self,Nh = None):
-        return self._Jj(self.Ax,Nh)
+    def Jx(self):
+        return self._Jj(self.Ax)
     @property
-    def Jy(self,Nh = None):
-        return self._Jj(self.Ay,Nh)
+    def Jy(self):
+        return self._Jj(self.Ay)
     @property
-    def Jz(self,Nh = None):
-        return self._Jj(self.Az,Nh)
+    def Jz(self):
+        return self._Jj(self.Az)
     #=====================================================================================
+
+    # Non-linear residual
+    @property
+    def R(self):
+        
+        err = []
+        actions = []
+        for plane in ['x','y','z'][:self.dim]:
+            _J = getattr(self,f'J{plane}')
+            _I = self._EIj(f'{plane}')
+            err.append(_J-_I)
+            actions.append(_I)
+        
+        R2 = sum(e**2 for e in err)/sum(a**2 for a in actions)
+        return np.sqrt(R2)
+
+        
+
+            
+
+        
 
 
 

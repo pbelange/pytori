@@ -16,6 +16,7 @@ class MathlibSympy(object):
     from sympy import im as imag
     from sympy import Basic
     from sympy import latex as _latex
+    from sympy import sympify, nsimplify
     from IPython.display import display as _display, Latex as _Latex
 
     @staticmethod
@@ -42,20 +43,26 @@ class MathlibNumpy(object):
 _mp = MathlibNumpy  # Default math library, can be changed to MathlibSympy for symbolic computations
 
 class FourierSeriesND:
-    def __init__(self, coeff_dict, max_modes=None, max_k=500, content_fraction=None, numerical_tol=1e-21,bet0=1,mp=_mp,complex_basis = True):
+    def __init__(self, coeff_dict, dim = None,max_order=None, max_k=500, content_fraction=None, numerical_tol=1e-21,bet0=1,mp=_mp,complex_basis = True):
         """
         Initialize a FourierSeriesND object using sparse representation.
 
         Parameters:
             coeff_dict (dict): Mapping from index tuples (n1, n2, ..., nd) to complex values.
-            max_modes (tuple, optional): Truncate to modes where |n_i| <= max_modes[i].
+            max_order (tuple, optional): Truncate to modes where |n_i| <= max_order[i].
             max_k (int): Keep only the max_k largest coefficients by magnitude.
             content_fraction (float): Fraction of total energy to retain.            
             numerical_tol (float): Threshold for filtering near-zero values.
             bet0 (float): rescaling length for the Fourier series (psi has units of sqrt(m)!).
         """
-        self.dim = len(next(iter(coeff_dict))) if coeff_dict else 1
-        self.max_modes = max_modes
+
+        if dim is not None:
+            self.dim = dim
+        else:
+            assert len(coeff_dict) > 0, "Cannot infer dimension from empty coeff_dict; please specify dim."
+            self.dim = len(next(iter(coeff_dict))) 
+
+        self.max_order = max_order
         self.max_k = max_k
         self.content_fraction = content_fraction
         self.numerical_tol = numerical_tol
@@ -75,34 +82,42 @@ class FourierSeriesND:
                 self.numerical_tol = None
         
 
-        if max_modes is not None or max_k is not None:
-            coeff_dict = self._truncate_dict(coeff_dict, max_modes, max_k,content_fraction)
+        if max_order is not None or max_k is not None:
+            coeff_dict = self._truncate_dict(coeff_dict, max_order, max_k,content_fraction)
 
         self._coeff_dict = {k: v for k, v in coeff_dict.items() if v != 0}
 
     
 
-    def copy(self):
+    def copy(self,coeff_dict=None):
         """Return a new copy of the Fourier series."""
-        coeff_dict = {k: v for k, v in self._coeff_dict.items()}
-        return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+        if coeff_dict is None:
+            coeff_dict = {k: v for k, v in self._coeff_dict.items()}
+        return FourierSeriesND(coeff_dict,dim = self.dim,max_order=self.max_order, max_k=self.max_k, content_fraction=self.content_fraction, 
+                               numerical_tol=self.numerical_tol,bet0=self.bet0,mp=self.mp,complex_basis =self.complex_basis)
 
-    def _truncate_dict(self, coeff_dict, max_modes=None, max_k=None, content_fraction=None):
+    def _truncate_dict(self, coeff_dict, max_order=None, max_k=None, content_fraction=None):
         """
         Truncate the Fourier series.
 
         Parameters:
-            max_modes (tuple): Max absolute value of each mode component.
+            max_order (tuple): Max absolute value of each mode component.
             max_k (int): Keep only the max_k largest coefficients by magnitude.
         """
-        if max_modes:
-            if isinstance(max_modes, int):
-                max_modes = (max_modes,) * self.dim
-                
-            coeff_dict = {
+        if max_order:
+            if isinstance(max_order, int):
+                # max_order = (max_order,) * self.dim
+                coeff_dict = {
+                    k: v for k, v in coeff_dict.items()
+                    if sum(np.abs(k)) <= max_order
+                }
+            elif isinstance(max_order, (list, tuple)):
+                assert len(max_order) == self.dim, "max_order length must match dimension"
+                coeff_dict = {
                 k: v for k, v in coeff_dict.items()
-                if all(abs(k[i]) <= max_modes[i] for i in range(len(max_modes)))
-            }
+                if all(abs(k[i]) <= max_order[i] for i in range(len(max_order)))
+                }
+            
         if max_k is not None and len(coeff_dict) > max_k:
             coeff_items = sorted(coeff_dict.items(), key=lambda kv: -abs(kv[1]))
             coeff_dict = dict(coeff_items[:max_k])
@@ -143,11 +158,28 @@ class FourierSeriesND:
             return df
 
 
-    def truncate(self, max_modes=None, max_k=None,content_fraction=None):
+    def truncate(self, max_order=None, max_k=None,content_fraction=None):
         """
         Returns a new FourierSeriesND with truncated coefficients.
         """
-        return FourierSeriesND(self._coeff_dict, max_modes=max_modes, max_k=max_k,content_fraction=content_fraction, numerical_tol=self.numerical_tol,mp=self.mp)
+        return FourierSeriesND(self._coeff_dict, dim=self.dim, max_order=max_order, max_k=max_k,content_fraction=content_fraction, numerical_tol=self.numerical_tol,mp=self.mp,complex_basis=self.complex_basis)
+
+    def dephase(self, phases):
+        """
+        Dephase the Fourier series by shifting the phases of each dimension.
+
+        Parameters:
+            phases (list or array): Phase shifts for each dimension in radians.
+        """
+        if isinstance(phases, (int, float, complex)):
+            phases = [phases] * self.dim
+        assert len(phases) == self.dim, "Length of phases must match dimension"
+        assert self.complex_basis, "Dephasing is only applicable for complex basis Fourier series."
+        phased_dict = {}
+        for k, v in self._coeff_dict.items():
+            phase_shift = sum(k[i] * phases[i] for i in range(self.dim))
+            phased_dict[k] = v * self.mp.exp(self.mp.I * phase_shift)
+        return self.copy(phased_dict)
 
     def star(self):
         """Return the complex conjugate series with reversed mode indices."""
@@ -166,7 +198,7 @@ class FourierSeriesND:
                 swapped_k = tuple(swapped_indices)
                 conjugated[swapped_k] = self.mp.conjugate(v)
 
-        return FourierSeriesND(conjugated, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+        return self.copy(conjugated)
 
     def conj(self):
         """Alias for .star(), returns complex conjugate."""
@@ -176,7 +208,109 @@ class FourierSeriesND:
         """Alias for .star(), returns complex conjugate."""
         return self.star()
 
+    def symsub(self, subs):
+        """Substitute symbolic variables in the coefficients."""
+        coeff_dict = self.to_dict()
+        substituted = {k: v.subs(subs) if hasattr(v, 'subs') else v for k, v in coeff_dict.items()}
+        return self.copy(substituted)
     
+    def symevalf(self):
+        """Numerical evaluation of symbolic coefficients."""
+        coeff_dict = self.to_dict()
+        substituted = {k: complex(v.evalf()) if hasattr(v, 'evalf') else v for k, v in coeff_dict.items()}
+        return self.copy(substituted)
+    
+    def symsimplify(self):
+        coeff_dict = self.to_dict()
+        substituted = {k: MathlibSympy.nsimplify(MathlibSympy.sympify(v.simplify()), rational=True) if hasattr(v, 'simplify') else v for k, v in coeff_dict.items()}
+        return self.copy(substituted)
+
+
+    def symplectic_condition(self,order,subs={}):
+        """
+        Compute the symplectic condition:
+            dPsi/dρ * dPsi*/dρ* - dPsi/dρ* * dPsi*/dρ = 1
+        Returns a SymPy expression that should equal 1.
+        """
+        assert not self.complex_basis, "only for rho rho^* basis"
+        import sympy as sp
+
+        _r, _rs = sp.symbols('r r^*', real=True,positive=True)
+        rho     = sp.symbols('rho', complex=True)
+        rho_s   = sp.conjugate(rho)
+
+        # reconstruct Psi(ρ, ρ*)
+        Psi     = sum(c * rho**n[0] * rho_s**n[1] for n, c in self._coeff_dict.items())
+        subs_in  = {rho:_r, rho_s:_rs}
+        subs_out = {_r:rho, _rs:rho_s}
+        dP_dr   = sp.diff(Psi.subs(subs_in), _r)
+        dP_drs  = sp.diff(Psi.subs(subs_in), _rs)
+        dPs_dr  = sp.diff(sp.conjugate(Psi).subs(subs_in), _r)
+        dPs_drs = sp.diff(sp.conjugate(Psi).subs(subs_in), _rs)
+
+        # subs_out = {_r:rho, _rs:rho_s}
+        J = dP_dr * dPs_drs - dPs_dr * dP_drs
+        J = J.simplify().expand()#.collect([_r,_rs,_r*_rs])
+
+        # Truncate
+        eps = sp.symbols('epsilon',real=True,positive=True)
+        if order <= 1:
+            order = 2
+        J = J.subs({_r:eps*_r, _rs:eps*_rs}) + sp.O(eps**(order))
+        J = J.expand().removeO().subs({eps:1})#.subs(subs_out)
+
+        poly = sp.Poly(sp.expand((J-1)), _r, _rs)
+        equations = []
+        for (m, k), coeff in poly.terms():
+            equations.append(sp.Eq(coeff.subs(subs).simplify(), 0))
+        return equations
+        
+    def collapse(self,I):
+
+        assert not self.complex_basis, "collapse only for rho rho^* basis"
+
+        # Normalize input I
+        if isinstance(I, (int, float, complex, self.mp.Basic)):
+            assert self.dim == 2, "Scalar I only valid for 1D (2 complex coords)"
+            I = [I]
+
+        nI = self.dim // 2
+        assert len(I) == nI, f"Expected {nI} action values, got {len(I)}"
+
+        # Extract actions with defaults
+        Ix = I[0] if nI >= 1 else 0
+        Iy = I[1] if nI >= 2 else None
+        Iz = I[2] if nI >= 3 else None
+
+        # Initialize collapsed series
+        base = self.copy()
+        base.dim = nI
+        base.complex_basis = True
+        # Overwriting
+        base = base.copy({})
+        flat = base.copy({})
+
+        for key, val in self._coeff_dict.items():
+            # Pad key to full 6-tuple
+            j, k, l, m, p, q = list(key) + [0] * (6 - len(key))
+
+            # Spectral index (truncate to dimensionality)
+            n_vec = (j - k, l - m, p - q)[:nI]
+
+            # Construct amplitude term
+            term = val
+            if nI >= 1:
+                term *= (2 * Ix) ** ((j + k) / 2)
+            if nI >= 2:
+                term *= (2 * Iy) ** ((l + m) / 2)
+            if nI >= 3:
+                term *= (2 * Iz) ** ((p + q) / 2)
+
+            # Accumulate into flattened series
+            flat += base.copy({n_vec: term})
+
+        return flat
+
     def __add__(self, other):
         """Add two FourierSeriesND instances."""
         if isinstance(other, FourierSeriesND):
@@ -184,16 +318,16 @@ class FourierSeriesND:
             dict2 = other.to_dict()
             all_keys = set(dict1.keys()) | set(dict2.keys())
             result_dict = {k: dict1.get(k, 0) + dict2.get(k, 0) for k in all_keys}
-            max_modes = self.max_modes or other.max_modes
+            max_order = self.max_order or other.max_order
             max_k = min(self.max_k, other.max_k) if self.max_k and other.max_k else self.max_k or other.max_k
             numerical_tol = min(self.numerical_tol, other.numerical_tol) if self.numerical_tol is not None else None
-            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp)
+            return FourierSeriesND(result_dict,dim=self.dim, max_order=max_order, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp,complex_basis=self.complex_basis)
         elif isinstance(other, (int, float, complex)):
             dict1 = self.to_dict()
             result_dict = dict(dict1)
             zero_mode = (0,) * self.dim
             result_dict[zero_mode] = result_dict.get(zero_mode, 0) + complex(other)
-            return FourierSeriesND(result_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+            return FourierSeriesND(result_dict, dim=self.dim, max_order=self.max_order, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp,complex_basis=self.complex_basis)
         else:
             return NotImplemented
 
@@ -212,13 +346,13 @@ class FourierSeriesND:
             dict1 = self.to_dict()
             dict2 = other.to_dict()
             result_dict = self._sparse_convolve(dict1, dict2)
-            max_modes = self.max_modes or other.max_modes
+            max_order = self.max_order or other.max_order
             max_k = min(self.max_k, other.max_k) if self.max_k and other.max_k else self.max_k or other.max_k
             numerical_tol = min(self.numerical_tol, other.numerical_tol) if self.numerical_tol is not None else None
-            return FourierSeriesND(result_dict, max_modes=max_modes, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp)
+            return FourierSeriesND(result_dict,dim=self.dim, max_order=max_order, max_k=max_k, numerical_tol=numerical_tol,mp=self.mp,complex_basis=self.complex_basis)
         elif isinstance(other, (int, float, complex,self.mp.Basic)):
             coeff_dict = {k: v * other for k, v in self.to_dict().items()}
-            return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+            return FourierSeriesND(coeff_dict,dim=self.dim, max_order=self.max_order, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp,complex_basis=self.complex_basis)
         else:
             return NotImplemented
         
@@ -245,7 +379,7 @@ class FourierSeriesND:
     def __pow__(self, power):
         """Raise the series to an integer power by repeated multiplication."""
         assert isinstance(power, int) and power >= 0
-        identity = FourierSeriesND({(0,) * self.dim: 1.0}, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+        identity = self.copy({(0,) * self.dim: 1.0})
         result = identity
         for _ in range(power):
             result = result * self
@@ -258,7 +392,7 @@ class FourierSeriesND:
     def __neg__(self):
         """Unary negation: return -self."""
         coeff_dict = {k: -v for k, v in self.to_dict().items()}
-        return FourierSeriesND(coeff_dict, max_modes=self.max_modes, max_k=self.max_k, numerical_tol=self.numerical_tol,mp=self.mp)
+        return self.copy(coeff_dict)
 
     def __getitem__(self, key):
         """Access a specific Fourier coefficient."""
