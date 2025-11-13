@@ -55,6 +55,7 @@ def _init_series(plane_input, name, max_order, max_terms, numerical_tol, mp, ser
 #===========================================================
 # Torus container
 #===========================================================
+
 class Torus:
     """
     Container for up to three series objects representing x, y, z planes.
@@ -62,11 +63,11 @@ class Torus:
     Supports both FourierSeries (Ψ(Θ)) and NormalFormSeries (Ψ(ρ,ρ*)).
     Provides clear, backend-robust evaluation of invariants and integrals.
     """
-
+    DEFAULT_MAX_TERMS = 100
     def __init__(self, x=None, y=None, z=None,
                  bet0=(1, 1, 1),
                  max_order=None,
-                 max_terms=100,
+                 max_terms=DEFAULT_MAX_TERMS,
                  numerical_tol=None,
                  mp="numpy",
                  series_class=FourierSeries):
@@ -112,7 +113,7 @@ class Torus:
 
 
     @classmethod
-    def from_naff(cls,n=None,A=None, **kwargs):
+    def from_naff(cls,n=None,A=None, max_terms=None, **kwargs):
         """
         Alternative constructor from (n, A) pairs, e.g., from NAFF output.
         Automatically handles aliasing by summing contributions with identical base frequency vectors.
@@ -146,7 +147,26 @@ class Torus:
         if dim >= 3:
             z = _accumulate_modes(n[2], A[2], dim)
 
-        return cls(x=x, y=y, z=z, **kwargs)
+        # --------------------------------------------------------
+        # Expand the max_terms **only if NAFF produces more terms**
+        # --------------------------------------------------------
+        if max_terms is None:
+            # incoming dictionary sizes
+            sizes = [
+                len(n[0]) if x else 0,
+                len(n[1]) if y else 0,
+                len(n[2]) if z else 0,
+            ]
+            naff_max = max(sizes)
+
+            # use Torus default = 100
+            default_max = cls.DEFAULT_MAX_TERMS
+
+            # final max_terms (only expand; never shrink)
+            max_terms = max(default_max, naff_max)
+
+        return cls(x=x, y=y, z=z, max_terms=max_terms, **kwargs)
+        
     
 
     @classmethod
