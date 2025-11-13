@@ -6,6 +6,7 @@ A Python package for the transport of loops and tori in accelerator beam-lines.
 
 ## Overview  
 `pytori` is designed to describe, track and visualize the deformation of 6-dimensional tori for phase-space studies in beam dynamics.  
+
 It can be used for applications in beam optics, linear dynamics, non-linear dynamics and Normal Form analysis. Most classes of the project can be used either in a numerical framework (i.e., based on `numpy`) or a symbolic framework (i.e., based on `sympy`).
 
 More detailed theoretical background and derivations are available in P. Belanger’s Ph.D. thesis.

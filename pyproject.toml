@@ -4,3 +4,10 @@ requires = [
     'setuptools >= 43.0.0',
     'numpy'
     ]
+
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "xtrack"
+]
