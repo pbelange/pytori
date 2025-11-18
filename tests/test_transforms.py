@@ -15,7 +15,7 @@ import pytori.transforms as transforms  # your drift, bend, multipole, etc.
 # ============================================================
 
 # Global energy template for all particles (7 TeV proton, nominal LHC scale)
-particle_on_co = dtk.TestParticles(
+particle_ref = dtk.TestParticles(
     p0c=7e12,  # 7 TeV
     x=0, px=0,
     y=0, py=0,
@@ -48,7 +48,7 @@ def make_simple_torus(dim=3, amp=1e-3):
 def torus_to_particles(Psi, Tx, Ty, Tz):
     """
     Evaluate Torus over arrays of (Tx, Ty, Tz) and return ducktrack.TestParticles.
-    Uses the global particle_on_co as a template.
+    Uses the global particle_ref as a template.
     """
     x = Psi.X(Tx, Ty, Tz)
     px = Psi.PX(Tx, Ty, Tz)
@@ -58,7 +58,7 @@ def torus_to_particles(Psi, Tx, Ty, Tz):
     pzeta = Psi.PZ(Tx, Ty, Tz)
 
     return dtk.TestParticles(
-        p0c = particle_on_co.p0c,
+        p0c = particle_ref.p0c,
         x=x.ravel(), px=px.ravel(),
         y=y.ravel(), py=py.ravel(),
         zeta=zeta.ravel(), pzeta=pzeta.ravel(),
@@ -113,7 +113,7 @@ def test_drift_vs_ducktrack(phase_grid, ds):
     el_dtk.track(dtk_particles)
 
     # --- pytori: drift map
-    Psi_new = transforms.drift(Psi, ds=ds, particle_on_co=particle_on_co)
+    Psi_new = transforms.drift(Psi, ds=ds, particle_ref=particle_ref)
     compare_torus_vs_ducktrack(Psi_new, dtk_particles, Tx, Ty, Tz)
 
 
@@ -166,5 +166,5 @@ def test_bend_vs_ducktrack(phase_grid, k0, h):
     dtk_particles.py = py0
     #------------------------------------
     
-    Psi_new = transforms.bend(Psi, k0=k0,h=h, particle_on_co=particle_on_co)
+    Psi_new = transforms.bend(Psi, k0=k0,h=h, particle_ref=particle_ref)
     compare_torus_vs_ducktrack(Psi_new, dtk_particles, Tx, Ty, Tz)

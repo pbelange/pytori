@@ -21,4 +21,8 @@ from .normalform import (
 from . import transforms
 from . import mathlib
 from . import tori
+from . import normalform
+from . import series
+from . import twiss
+
 # import .mathlib as mathlib

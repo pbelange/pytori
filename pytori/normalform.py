@@ -250,3 +250,5 @@ def _partial_of(series, plane_j, by = "rho"):
                 out[newk] = out.get(newk, 0) + n * c
 
     return series.copy(coeff_dict=out)
+
+

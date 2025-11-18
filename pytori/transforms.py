@@ -4,7 +4,7 @@ import pytori.mathlib as mathlib
 import pytori.normalform as normalform
 
 
-def drift(Psi: Torus, ds=0, particle_on_co=None, beta_rel=None, order=20):
+def drift(Psi: Torus, ds=0, particle_ref=None, beta_rel=None, order=20):
     """
     Apply a symplectic drift transformation to a Torus:
         H = pz - δ + (px² + py²) / [2(1 + δ)]
@@ -16,10 +16,10 @@ def drift(Psi: Torus, ds=0, particle_on_co=None, beta_rel=None, order=20):
         The Torus to transform (NormalForm or Fourier representation).
     ds : float
         Drift length.
-    particle_on_co : object, optional
+    particle_ref : object, optional
         Reference particle, used to extract β_rel if not given.
     beta_rel : float, optional
-        Relativistic β. Required if not inferrable from `particle_on_co`.
+        Relativistic β. Required if not inferrable from `particle_ref`.
     order : int, optional
         Truncation order for Gegenbauer expansion.
     """
@@ -31,11 +31,11 @@ def drift(Psi: Torus, ds=0, particle_on_co=None, beta_rel=None, order=20):
     betx0, bety0, betz0 = Psi.betx0, Psi.bety0, Psi.betz0
 
     # Relativistic β
-    if Psiz is not None and beta_rel is None and particle_on_co is not None:
+    if Psiz is not None and beta_rel is None and particle_ref is not None:
         try:
-            beta_rel = getattr(particle_on_co, "beta0")[0]
+            beta_rel = getattr(particle_ref, "beta0")[0]
         except:
-            beta_rel = getattr(particle_on_co, "beta0")
+            beta_rel = getattr(particle_ref, "beta0")
     assert beta_rel is not None or Psiz is None, "beta_rel must be provided for z-plane"
 
     
@@ -75,7 +75,7 @@ def drift(Psi: Torus, ds=0, particle_on_co=None, beta_rel=None, order=20):
 
 
 
-def bend(Psi: Torus, k0=None, h=None, particle_on_co=None, beta_rel=None, order=20):
+def bend(Psi: Torus, k0=None, h=None, particle_ref=None, beta_rel=None, order=20):
     """
     Apply a thin-dipole transformation to a Torus:
         H = -h * x * (1 + δ) + k0 * (x + h x² / 2)
@@ -89,11 +89,11 @@ def bend(Psi: Torus, k0=None, h=None, particle_on_co=None, beta_rel=None, order=
     betx0, bety0, betz0 = Psi.betx0, Psi.bety0, Psi.betz0
 
     # Relativistic β
-    if Psiz is not None and beta_rel is None and particle_on_co is not None:
+    if Psiz is not None and beta_rel is None and particle_ref is not None:
         try:
-            beta_rel = getattr(particle_on_co, "beta0")[0]
+            beta_rel = getattr(particle_ref, "beta0")[0]
         except:
-            beta_rel = getattr(particle_on_co, "beta0")
+            beta_rel = getattr(particle_ref, "beta0")
     assert beta_rel is not None or Psiz is None, "beta_rel must be provided for z-plane"
 
     # Field geometry
