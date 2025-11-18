@@ -6,8 +6,3 @@ requires = [
     ]
 
 
-[project.optional-dependencies]
-test = [
-    "pytest",
-    "xtrack"
-]
