@@ -13,24 +13,41 @@ fi
 
 echo "Using interpreter: $($PYTHON --version)"
 
-NAME=$($PYTHON setup.py --name)
-VER=$($PYTHON setup.py --version)
+#############################################
+# Extract version from pytori/_version.py   #
+#############################################
+
+VERSION=$($PYTHON -c "import pytori._version as v; print(v.__version__)")
+
+echo "Detected version: $VERSION"
+
+NAME="pytori"
 
 echo "========================================================================"
-echo "Tagging $NAME v$VER"
+echo "Tagging $NAME v$VERSION"
 echo "========================================================================"
 
-git tag v$VER
-git push origin v$VER
+git tag "v$VERSION"
+git push origin "v$VERSION"
 
 echo "========================================================================"
-echo "Releasing $NAME v$VER on PyPI"
+echo "Building $NAME v$VERSION"
 echo "========================================================================"
 
-$PYTHON setup.py sdist
+$PYTHON -m build
 
-# IF FIRST UPLOAD, ACCOUNT-LEVEL API TOKEN NEEDED (uncomment):
+echo "========================================================================"
+echo "Uploading $NAME v$VERSION to PyPI"
+echo "========================================================================"
+
+# IF FIRST TIME ON PYPI USE:
 # twine upload dist/* --verbose
-# Otherise, project-specific token:
+
 twine upload dist/* --verbose --repository pytori
-rm -r dist/ *.egg-info
+
+echo "Cleaning up build artifacts..."
+rm -rf dist/ *.egg-info
+
+echo "========================================================================"
+echo "Release complete!"
+echo "========================================================================"

@@ -1,13 +1,45 @@
 [build-system]
-build-backend = 'setuptools.build_meta'
-requires = [
-    'setuptools >= 43.0.0',
-    'numpy'
-    ]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 
+[project]
+name = "pytori"
+dynamic = ["version"]
+description = "Transport of loops and tori in accelerator beam lines using topological structures and normal-form transformations."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+
+authors = [
+    { name = "Philippe Bélanger", email = "your-email@example.com" }
+]
+
+dependencies = [
+    "numpy>=1.0",
+    "sympy>=1.10",
+    "pandas>=1.0",
+]
+
+# Optional groups
 [project.optional-dependencies]
 test = [
     "pytest",
-    "xtrack"
+    "xtrack",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pbelange/pytori"
+Source = "https://github.com/pbelange/pytori"
+Issues = "https://github.com/pbelange/pytori/issues"
+
+
+# Dynamically load version from the pytori/_version.py file
+[tool.setuptools.dynamic]
+version = { file = "pytori/_version.py" }
+
+
+# Ensure package files are included
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pytori*"]
