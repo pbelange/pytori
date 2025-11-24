@@ -18,11 +18,17 @@ from .normalform import (
     xreplace,
 )
 
+
+from .monitors import (
+    NAFFMonitor,
+    TorusMonitor,
+)
+
 from . import transforms
 from . import mathlib
 from . import tori
 from . import normalform
 from . import series
 from . import twiss
+from . import monitors
 
-# import .mathlib as mathlib
