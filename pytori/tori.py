@@ -387,6 +387,42 @@ class Torus:
     @property
     def Iz(self): return self.Ij('z')
 
+    # Partial actions
+    #-----------------------------------------------------------
+    def Ijk(self,j,k,Tx=0,Ty=0,Tz=0):
+        self._update_cache()
+        assert self.series_class is FourierSeries, "Ijk integral only defined for FourierSeries."
+        A,n = {'x':(self._Ax,self._nx),
+               'y':(self._Ay,self._ny),
+               'z':(self._Az,self._nz)}[k]
+        _Ijk = mathlib.poincare_integral(A,n,int_angle=j,Tx=Tx,Ty=Ty,Tz=Tz,mp=self.mp)
+        return _Ijk/(2*self.mp.pi)
+
+    # x-integration
+    def Ixx(self,Ty=0,Tz=0):        
+        return self.Ijk('x','x',Ty=Ty,Tz=Tz)
+    def Ixy(self,Ty=0,Tz=0):        
+        return self.Ijk('x','y',Ty=Ty,Tz=Tz)
+    def Ixz(self,Ty=0,Tz=0):        
+        return self.Ijk('x','z',Ty=Ty,Tz=Tz)
+    
+    # y-integration
+    def Iyx(self,Tx=0,Tz=0):        
+        return self.Ijk('y','x',Tx=Tx,Tz=Tz)
+    def Iyy(self,Tx=0,Tz=0):        
+        return self.Ijk('y','y',Tx=Tx,Tz=Tz)
+    def Iyz(self,Tx=0,Tz=0):        
+        return self.Ijk('y','z',Tx=Tx,Tz=Tz)    
+    
+    # z-integration
+    def Izx(self,Tx=0,Ty=0):        
+        return self.Ijk('z','x',Tx=Tx,Ty=Ty)
+    def Izy(self,Tx=0,Ty=0):        
+        return self.Ijk('z','y',Tx=Tx,Ty=Ty)
+    def Izz(self,Tx=0,Ty=0):        
+        return self.Ijk('z','z',Tx=Tx,Ty=Ty)    
+    #-----------------------------------------------------------
+
     @property
     def Jx(self):
         self._update_cache()
